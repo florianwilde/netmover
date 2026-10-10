@@ -32,6 +32,9 @@
     <div class="small">Hostschlüssel: {% if m.host_key %}<span class="mono">{{ m.host_key.split()[0] }}</span> festgehalten
       <form class="inline" method="post" action="/mounts/{{ m.id }}/reset-hostkey" data-confirm="Hostschlüssel zurücksetzen? Nur tun, wenn der Server neu aufgesetzt wurde.">{{ csrf_field(csrf) }}<button class="small">zurücksetzen</button></form>
       {% else %}<span class="text-warn">noch nicht bestätigt – bitte „Testen“</span>{% endif %}</div>
+    {% if key_names.get(m.id) %}
+    <div class="small">Anmeldung mit gespeichertem Schlüssel <a href="/keys">„{{ key_names[m.id] }}“</a></div>
+    {% endif %}
     {% if pubkeys.get(m.id) %}
     <details class="small"><summary>Öffentlicher Schlüssel für authorized_keys</summary>
       <pre class="mono" id="pub-{{ m.id }}">{{ pubkeys[m.id] }}</pre>

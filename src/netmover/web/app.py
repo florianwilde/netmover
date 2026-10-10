@@ -45,6 +45,7 @@ from netmover.admin import (
 from netmover.app_state import NetMover
 from netmover.config import Settings, get_settings
 from netmover.db import session_scope
+from netmover.keys import delete_key, generate_key, import_key, list_keys, rename_key
 from netmover.logging_setup import event, get_logger
 from netmover.models import (
     CollisionPolicy,
@@ -392,10 +393,21 @@ async def mounts_page(request: Request) -> Response:
         pubkeys = {
             m.id: m.credential.public_key
             for m in mounts
-            if m.credential is not None and m.credential.public_key
+            if m.credential is not None and m.credential.public_key and not m.credential.managed
+        }
+        key_names = {
+            m.id: m.credential.name
+            for m in mounts
+            if m.credential is not None and m.credential.managed
         }
         return render(
-            request, "mounts.html", active="mounts", mounts=mounts, reports=reports, pubkeys=pubkeys
+            request,
+            "mounts.html",
+            active="mounts",
+            mounts=mounts,
+            reports=reports,
+            pubkeys=pubkeys,
+            key_names=key_names,
         )
 
 
@@ -409,6 +421,15 @@ def _report_data(raw: str | None) -> dict[str, Any]:
     return data
 
 
+def _key_options(request: Request) -> list[tuple[str, str]]:
+    with nm(request).session_factory() as s:
+        keys = list_keys(s)
+    return [("new", "neuer Schlüssel nur für diese Anbindung")] + [
+        (str(k.id), f"{k.name} ({k.key_type.removeprefix('ssh-')}, {k.fingerprint[7:19]}…)")
+        for k in keys
+    ]
+
+
 def _mount_form(
     request: Request,
     data: MountInput,
@@ -416,7 +437,11 @@ def _mount_form(
     mount: Mount | None = None,
     status_code: int = 200,
 ) -> Response:
-    pub = mount.credential.public_key if mount is not None and mount.credential else None
+    pub = (
+        mount.credential.public_key
+        if mount is not None and mount.credential and not mount.credential.managed
+        else None
+    )
     return render(
         request,
         "mount_form.html",
@@ -426,7 +451,10 @@ def _mount_form(
         errors=errors,
         mount=mount,
         public_key=pub,
-        has_secret=bool(mount is not None and mount.credential is not None),
+        has_secret=bool(
+            mount is not None and mount.credential is not None and not mount.credential.managed
+        ),
+        key_options=_key_options(request),
     )
 
 
@@ -487,7 +515,7 @@ async def mount_test_form(request: Request) -> Response:
     existing_id = int(form["mount_id"]) if form.get("mount_id", "").isdigit() else None
     with state.session_factory() as s:
         existing = s.get(Mount, existing_id) if existing_id else None
-        cred = credential_for_test(data, existing, state.secrets)
+        cred = credential_for_test(data, existing, state.secrets, s)
     cfg = data.config()
     if data.type is MountType.SFTP and existing is not None:
         cfg = dataclasses.replace(cfg, host_key=existing.host_key)
@@ -503,7 +531,7 @@ async def mount_test(request: Request, mount_id: int) -> Response:
         if m is None:
             return HTMLResponse("Anbindung existiert nicht.", status_code=404)
         data = mount_input_from_model(m)
-        cred = credential_for_test(data, m, state.secrets)
+        cred = credential_for_test(data, m, state.secrets, s)
         from netmover.mounting.manager import MountConfig
 
         cfg = MountConfig.from_model(m)
@@ -561,6 +589,74 @@ async def mount_reset_hostkey(request: Request, mount_id: int) -> Response:
         "info",
     )
     return redirect(f"/mounts#mount-{mount_id}")
+
+
+# -- Schlüsselverwaltung ----------------------------------------------------------------------
+
+
+@protected.get("/keys", response_class=HTMLResponse)
+async def keys_page(request: Request) -> Response:
+    with nm(request).session_factory() as s:
+        return render(request, "keys.html", active="keys", keys=list_keys(s))
+
+
+async def _key_action(request: Request, work: Callable[[Any], str]) -> Response:
+    state = nm(request)
+    try:
+        with session_scope(state.session_factory) as s:
+            flash(request, work(s))
+    except AdminError as exc:
+        flash(request, str(exc), "error")
+    return redirect("/keys")
+
+
+@protected.post("/keys/generate")
+async def key_generate(request: Request) -> Response:
+    form = _form_dict(await request.form())
+    secrets = nm(request).secrets
+
+    def work(s: Any) -> str:
+        key = generate_key(s, secrets, form.get("name", ""))
+        return f"Schlüssel „{key.name}“ erzeugt."
+
+    return await _key_action(request, work)
+
+
+@protected.post("/keys/import")
+async def key_import(request: Request) -> Response:
+    form = _form_dict(await request.form())
+    secrets = nm(request).secrets
+
+    def work(s: Any) -> str:
+        key = import_key(
+            s,
+            secrets,
+            form.get("name", ""),
+            form.get("private_key", ""),
+            form.get("passphrase", ""),
+        )
+        return f"Schlüssel „{key.name}“ importiert."
+
+    return await _key_action(request, work)
+
+
+@protected.post("/keys/{key_id}/rename")
+async def key_rename(request: Request, key_id: int) -> Response:
+    form = _form_dict(await request.form())
+
+    def work(s: Any) -> str:
+        rename_key(s, key_id, form.get("name", ""))
+        return "Schlüssel umbenannt."
+
+    return await _key_action(request, work)
+
+
+@protected.post("/keys/{key_id}/delete")
+async def key_delete(request: Request, key_id: int) -> Response:
+    def work(s: Any) -> str:
+        return f"Schlüssel „{delete_key(s, key_id)}“ gelöscht."
+
+    return await _key_action(request, work)
 
 
 # -- Regeln -----------------------------------------------------------------------------------

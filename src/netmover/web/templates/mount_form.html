@@ -23,7 +23,10 @@
   </div></fieldset>
 
   <fieldset data-show-for="type:cifs sftp"><legend>Anmeldung</legend><div class="fields">
-    <div data-show-for="type:sftp">{{ select('auth', 'Anmeldeart', [('ssh_key', 'SSH-Schlüssel (NetMover erzeugt ihn)'), ('password', 'Passwort')], d.auth.value, errors=errors) }}</div>
+    <div data-show-for="type:sftp">{{ select('auth', 'Anmeldeart', [('ssh_key', 'SSH-Schlüssel'), ('password', 'Passwort')], d.auth.value, errors=errors) }}</div>
+    <div data-show-for="type:sftp"><div data-show-for="auth:ssh_key">
+      {{ select('key_id', 'Schlüssel', key_options, d.key_id, errors=errors, hint='Gespeicherte Schlüssel verwalten unter „Schlüssel“.') }}
+    </div></div>
     {{ field('username', 'Benutzername', d.username, errors=errors, attrs='autocomplete="off"', hint='Bei CIFS leer lassen für Gastzugang') }}
     <div data-show-for="type:cifs">{{ field('domain', 'Domäne (optional)', d.domain, errors=errors) }}</div>
     <div class="field{{ ' has-error' if errors.get('password') }}" id="pw-field">
@@ -33,7 +36,7 @@
       <span class="hint">{{ 'Leer lassen = unverändert. ' if has_secret }}Bei SFTP mit Schlüssel leer lassen.</span>
     </div>
   </div>
-  {% if public_key %}<div class="field wide"><label>Öffentlicher Schlüssel (in ~/.ssh/authorized_keys des Zielbenutzers eintragen)</label>
+  {% if public_key %}<div class="field wide"><label>Öffentlicher Schlüssel dieser Anbindung (in ~/.ssh/authorized_keys des Zielbenutzers eintragen)</label>
     <pre class="mono card" id="pubkey">{{ public_key }}</pre><button class="small" type="button" data-copy="pubkey">kopieren</button></div>{% endif %}
   </fieldset>
 
