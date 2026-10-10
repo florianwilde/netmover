@@ -127,7 +127,7 @@ def _alive(pid: int) -> bool:
     try:
         with open(f"/proc/{pid}/stat") as fh:
             return fh.read().split(")")[-1].split()[0] != "Z"
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):  # verschwindet beim Lesen → ESRCH
         return False
 
 
