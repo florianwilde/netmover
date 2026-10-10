@@ -2,6 +2,10 @@
 
 Abweichungen bzw. Ergänzungen gegenüber dem Mindestumfang aus der Spezifikation:
 
+* Typ ``sftp``: Ziel per SSH/SFTP ohne Kernel-Mount (z. B. Paperless im LXC).
+  ``share`` ist dort der entfernte Basispfad, dazu ``port`` und ``host_key``
+  (beim ersten Test festgehaltener Hostschlüssel, danach verbindlich).
+* ``credentials.kind`` (``password`` | ``ssh_key``) und ``credentials.public_key``.
 * ``credentials.domain`` – Windows-/AD-Freigaben brauchen oft eine Domäne.
 * ``mounts.state_since`` – für „hängt seit …“ / „gestört seit …“ auf der Statusseite.
 * ``mounts.write_ok`` / ``mounts.root_squash`` / ``mounts.last_test_*`` – Ergebnis
@@ -93,6 +97,16 @@ class MountType(enum.StrEnum):
     CIFS = "cifs"
     NFS4 = "nfs4"
     NFS3 = "nfs3"
+    SFTP = "sftp"
+
+    @property
+    def is_kernel_mount(self) -> bool:
+        return self is not MountType.SFTP
+
+
+class CredentialKind(enum.StrEnum):
+    PASSWORD = "password"  # noqa: S105 – Art der Zugangsdaten, kein Passwort
+    SSH_KEY = "ssh_key"
 
 
 class MountState(enum.StrEnum):
@@ -145,9 +159,13 @@ class Credential(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(100), unique=True)
+    kind: Mapped[CredentialKind] = mapped_column(
+        _enum(CredentialKind, "credential_kind"), default=CredentialKind.PASSWORD
+    )
     username: Mapped[str] = mapped_column(String(255))
     domain: Mapped[str | None] = mapped_column(String(255))
-    secret_enc: Mapped[str] = mapped_column(Text)
+    secret_enc: Mapped[str] = mapped_column(Text)  # Passwort bzw. privater Schlüssel (Fernet)
+    public_key: Mapped[str | None] = mapped_column(Text)  # nur ssh_key, OpenSSH-Format
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     # passive_deletes="all": das ORM soll cred_id nicht still auf NULL setzen,
@@ -164,7 +182,9 @@ class Mount(Base):
     type: Mapped[MountType] = mapped_column(_enum(MountType, "mount_type"))
     server: Mapped[str] = mapped_column(String(255))
     share: Mapped[str] = mapped_column(String(1024))
-    mountpoint: Mapped[str] = mapped_column(String(1024), unique=True)
+    port: Mapped[int | None] = mapped_column(Integer)  # nur sftp
+    host_key: Mapped[str | None] = mapped_column(Text)  # nur sftp, "<typ> <base64>"
+    mountpoint: Mapped[str | None] = mapped_column(String(1024), unique=True)  # NULL bei sftp
     cred_id: Mapped[int | None] = mapped_column(ForeignKey("credentials.id", ondelete="RESTRICT"))
     uid: Mapped[int | None] = mapped_column(Integer)
     gid: Mapped[int | None] = mapped_column(Integer)
