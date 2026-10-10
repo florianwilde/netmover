@@ -14,6 +14,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 echo "==> Pakete"
+export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq python3 python3-venv cifs-utils nfs-common >/dev/null
 

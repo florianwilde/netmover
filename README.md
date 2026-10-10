@@ -69,13 +69,18 @@ Was wo liegt:
 
 **Warum als root?** Ein- und Aushängen braucht `CAP_SYS_ADMIN`. Außerdem soll
 NetMover Dateien auf beliebigen Freigaben lesen, löschen und mit den richtigen
-Eigentümern anlegen können. Die Unit härtet den Dienst so weit, wie es sich mit
-Mounten verträgt: `ProtectSystem=full`, `PrivateTmp`, `NoNewPrivileges`, Zustand nur
-für root lesbar. Weil diese Optionen einen eigenen Mount-Namespace erzeugen, steht
-`MountFlags=shared` in der Unit. Nur so sieht das System die Mounts:
+Eigentümern anlegen können.
+
+**Warum so wenig systemd-Härtung?** Optionen wie `ProtectSystem=`, `PrivateTmp=`
+oder `ProtectHome=` geben dem Dienst einen eigenen Mount-Namespace. Die Mounts
+landeten dann *nur dort*: Das System und Paperless sähen sie nicht, und jeder
+Neustart des Dienstes würde sie verwerfen. `MountFlags=shared` hilft dagegen nicht.
+Auf der Test-VM nachgewiesen. Die Unit nutzt deshalb nur Härtungen ohne eigenen
+Namespace (`NoNewPrivileges`, `RestrictSUIDSGID`, `LockPersonality`,
+`RestrictRealtime`); Datenbank und Schlüssel sind nur für root lesbar. Prüfen:
 
 ```bash
-findmnt -R /mnt/netmover    # sollte die eingehängten Freigaben zeigen
+findmnt -l | grep /mnt/netmover    # die eingehängten Freigaben müssen hier stehen
 ```
 
 **Beim Beenden bleiben die Mounts eingehängt**, weil andere Programme sie benutzen
@@ -330,6 +335,7 @@ findmnt -R /mnt/netmover                     # was ist wirklich eingehängt?
 | „… ist nicht leer“ beim Einhängen | Im Mountpoint liegen Dateien, die geschrieben wurden, als nichts eingehängt war. Inhalt prüfen und sichern, Verzeichnis leeren, erneut einhängen. |
 | „nicht eingehängt – Lauf abgebrochen“ | Die Freigabe ist weg (z. B. von Hand ausgehängt). Auf der Anbindungsseite **Einhängen**. NetMover hängt verschwundene Mounts absichtlich nicht selbst neu ein. |
 | „gestört (ESTALE …)“, danach wieder OK | NAS-Neustart; NetMover hat neu eingehängt. Bleibt der Fehler: Netzwerk/NAS prüfen. |
+| „weiterhin nicht verfügbar – neuer Versuch in 60 s“ | Das NAS ist (noch) weg, z. B. während eines DSM-Updates. Bei Anbindungen mit „automatisch einhängen“ versucht NetMover es jede Minute erneut und meldet per Webhook, wenn es wieder klappt. |
 | „Keine Reaktion seit 120 s“ | Ein Dateizugriff hängt (meist NFS mit `hard`). Die Regel bleibt blockiert („läuft seit …“), bis der Zugriff zurückkehrt; die Anbindung wird vor dem nächsten Lauf geprüft. |
 | „Hostschlüssel … hat sich geändert“ (SFTP) | Wurde der Zielserver neu aufgesetzt? Dann bei der Anbindung „Hostschlüssel zurücksetzen“ und neu testen. Sonst **nicht** verbinden. |
 | SFTP: „Anmeldung abgelehnt“ | Öffentlicher Schlüssel fehlt in `authorized_keys`, oder Rechte von `~/.ssh` stimmen nicht (700/600, Eigentümer). |
