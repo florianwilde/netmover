@@ -22,7 +22,9 @@ from string import Template
 import httpx
 from sqlalchemy.orm import Session, sessionmaker
 
+from netmover.crypto import SecretBox
 from netmover.logging_setup import event, get_logger
+from netmover.mail import mail_configured, smtp_send
 from netmover.settings_store import AppSettings, NotifyMode, load_settings
 
 log = get_logger(__name__)
@@ -60,34 +62,71 @@ def http_sender(url: str, content_type: str, body: str) -> None:
     resp.raise_for_status()
 
 
+Mailer = Callable[[AppSettings, "str | None", str, str], None]  # (cfg, passwort, betreff, text)
+
+
 class Notifier:
+    """Verteilt Benachrichtigungen auf die eingerichteten Kanäle (Webhook, E-Mail)."""
+
     def __init__(
         self,
         session_factory: sessionmaker[Session],
         *,
         sender: Sender = http_sender,
+        mailer: Mailer | None = None,
+        secrets: SecretBox | None = None,
         background: bool = True,
     ) -> None:
         self.session_factory = session_factory
         self._sender = sender
+        self._mailer: Mailer = mailer or smtp_send
+        self._secrets = secrets
         self._background = background
 
     def settings(self) -> AppSettings:
         return load_settings(self.session_factory)
 
+    def smtp_password(self, cfg: AppSettings) -> str | None:
+        if not cfg.smtp_password_enc or self._secrets is None:
+            return None
+        return self._secrets.decrypt(cfg.smtp_password_enc)
+
+    def send_mail_now(self, subject: str, body: str, settings: AppSettings | None = None) -> None:
+        """Synchron senden (Test-Knopf); Fehler werden weitergereicht."""
+        cfg = settings or self.settings()
+        self._mailer(cfg, self.smtp_password(cfg), subject, body)
+
     def send(self, n: Notification, settings: AppSettings | None = None) -> None:
         cfg = settings or self.settings()
-        if cfg.notify_mode is NotifyMode.OFF or not cfg.webhook_url:
+        if cfg.notify_mode is NotifyMode.OFF:
             return
-        body = render(cfg.webhook_template, cfg.webhook_content_type, n)
+        jobs: list[tuple[str, Callable[[], None]]] = []
+        if cfg.webhook_url:
+            body = render(cfg.webhook_template, cfg.webhook_content_type, n)
+            jobs.append(
+                ("webhook", lambda: self._sender(cfg.webhook_url, cfg.webhook_content_type, body))
+            )
+        if mail_configured(cfg):
+            password = self.smtp_password(cfg)
+            jobs.append(("email", lambda: self._mailer(cfg, password, n.title, n.message)))
+        if not jobs:
+            return
 
         def deliver() -> None:
-            try:
-                self._sender(cfg.webhook_url, cfg.webhook_content_type, body)
-                event(log, "notify.sent", kind=n.event, rule=n.rule)
-            except Exception as exc:  # Benachrichtigung darf nie den Dienst stören
-                # URL nicht protokollieren – sie enthält oft ein Token.
-                event(log, "notify.failed", level=30, kind=n.event, error=type(exc).__name__)
+            for channel, job in jobs:
+                try:
+                    job()
+                    event(log, "notify.sent", kind=n.event, rule=n.rule, channel=channel)
+                except Exception as exc:  # Benachrichtigung darf nie den Dienst stören
+                    # Weder URL noch Zugangsdaten protokollieren.
+                    event(
+                        log,
+                        "notify.failed",
+                        level=30,
+                        kind=n.event,
+                        channel=channel,
+                        error=type(exc).__name__,
+                    )
 
         if self._background:
             threading.Thread(target=deliver, name="nm-notify", daemon=True).start()
