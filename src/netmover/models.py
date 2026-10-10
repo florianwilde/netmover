@@ -7,6 +7,9 @@ Abweichungen bzw. Ergänzungen gegenüber dem Mindestumfang aus der Spezifikatio
   (beim ersten Test festgehaltener Hostschlüssel, danach verbindlich).
 * ``credentials.kind`` (``password`` | ``ssh_key``) und ``credentials.public_key``.
 * ``credentials.domain`` – Windows-/AD-Freigaben brauchen oft eine Domäne.
+* ``credentials.managed`` + ``mounts.username`` (Migration 0002) –
+  Schlüsselverwaltung: gespeicherte SSH-Schlüssel, die mehrere Anbindungen mit
+  jeweils eigenem Benutzernamen nutzen.
 * ``mounts.state_since`` – für „hängt seit …“ / „gestört seit …“ auf der Statusseite.
 * ``mounts.write_ok`` / ``mounts.root_squash`` / ``mounts.last_test_*`` – Ergebnis
   des letzten Mount-Tests; ``root_squash`` entscheidet, ob ``chown`` auf NFS-Zielen
@@ -38,6 +41,7 @@ from sqlalchemy import (
     TypeDecorator,
     UniqueConstraint,
 )
+from sqlalchemy import false as sa_false
 from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -166,6 +170,9 @@ class Credential(Base):
     domain: Mapped[str | None] = mapped_column(String(255))
     secret_enc: Mapped[str] = mapped_column(Text)  # Passwort bzw. privater Schlüssel (Fernet)
     public_key: Mapped[str | None] = mapped_column(Text)  # nur ssh_key, OpenSSH-Format
+    # True: in der Schlüsselverwaltung gepflegt, von mehreren Anbindungen nutzbar.
+    # False: gehört genau einer Anbindung und wird mit ihr gelöscht.
+    managed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false())
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     # passive_deletes="all": das ORM soll cred_id nicht still auf NULL setzen,
@@ -183,6 +190,9 @@ class Mount(Base):
     server: Mapped[str] = mapped_column(String(255))
     share: Mapped[str] = mapped_column(String(1024))
     port: Mapped[int | None] = mapped_column(Integer)  # nur sftp
+    # Benutzer für die Anmeldung; überschreibt credentials.username. Nötig, weil ein
+    # gespeicherter SSH-Schlüssel für verschiedene Server/Benutzer gelten kann.
+    username: Mapped[str | None] = mapped_column(String(255))
     host_key: Mapped[str | None] = mapped_column(Text)  # nur sftp, "<typ> <base64>"
     mountpoint: Mapped[str | None] = mapped_column(String(1024), unique=True)  # NULL bei sftp
     cred_id: Mapped[int | None] = mapped_column(ForeignKey("credentials.id", ondelete="RESTRICT"))

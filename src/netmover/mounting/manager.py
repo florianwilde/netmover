@@ -228,7 +228,7 @@ class MountManager:
             if m.credential is not None:
                 c = m.credential
                 cred = CredentialData(
-                    c.kind, c.username, self.secrets.decrypt(c.secret_enc), c.domain
+                    c.kind, m.username or c.username, self.secrets.decrypt(c.secret_enc), c.domain
                 )
             s.expunge(m)
             return m, cred

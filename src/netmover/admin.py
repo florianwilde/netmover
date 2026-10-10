@@ -84,6 +84,9 @@ def _int(
 # -- Anbindungen ------------------------------------------------------------------------
 
 
+NEW_KEY = "new"
+
+
 @dataclass
 class MountInput:
     name: str = ""
@@ -95,6 +98,9 @@ class MountInput:
     password: str = ""  # leer = unverändert
     domain: str = ""
     auth: CredentialKind = CredentialKind.PASSWORD  # nur sftp: Schlüssel oder Passwort
+    # nur sftp + Schlüssel: "new" = eigener Schlüssel nur für diese Anbindung,
+    # sonst ID eines Schlüssels aus der Schlüsselverwaltung
+    key_id: str = NEW_KEY
     uid: int | None = None
     gid: int | None = None
     file_mode: str | None = None
@@ -126,9 +132,10 @@ def mount_input_from_model(m: Mount) -> MountInput:
         server=m.server,
         share=m.share,
         port=m.port,
-        username=c.username if c else "",
+        username=m.username or (c.username if c else ""),
         domain=(c.domain or "") if c else "",
         auth=c.kind if c else CredentialKind.PASSWORD,
+        key_id=str(c.id) if c is not None and c.managed else NEW_KEY,
         uid=m.uid,
         gid=m.gid,
         file_mode=m.file_mode,
@@ -151,7 +158,11 @@ def parse_mount_form(form: Mapping[str, str]) -> tuple[MountInput, Errors]:
         extra_options=(form.get("extra_options") or "").strip(),
         auto_mount=_bool(form, "auto_mount"),
         enabled=_bool(form, "enabled"),
+        key_id=(form.get("key_id") or NEW_KEY).strip(),
     )
+    if data.key_id != NEW_KEY and not data.key_id.isdigit():
+        errors["key_id"] = "Ungültige Schlüsselauswahl."
+        data.key_id = NEW_KEY
     try:
         data.type = MountType(form.get("type", "cifs"))
     except ValueError:
@@ -203,17 +214,27 @@ def parse_mount_form(form: Mapping[str, str]) -> tuple[MountInput, Errors]:
         errors["username"] = "SFTP braucht einen Benutzernamen."
     if data.type is not MountType.SFTP:
         data.auth = CredentialKind.PASSWORD
+    if data.auth is not CredentialKind.SSH_KEY:
+        data.key_id = NEW_KEY
     return data, errors
 
 
 def credential_for_test(
-    data: MountInput, existing: Mount | None, secrets: SecretBox
+    data: MountInput, existing: Mount | None, secrets: SecretBox, s: Session | None = None
 ) -> CredentialData | None:
-    """Zugangsdaten für „Testen“ aus dem Formular – leeres Passwort = gespeichertes."""
+    """Zugangsdaten für „Testen“ aus dem Formular – leeres Passwort = gespeichertes,
+    gewählter Schlüssel aus der Schlüsselverwaltung."""
     if data.type in (MountType.NFS3, MountType.NFS4) or not data.username:
         return None
+    if data.auth is CredentialKind.SSH_KEY and data.key_id != NEW_KEY and s is not None:
+        key = s.get(Credential, int(data.key_id))
+        if key is None or not key.managed:
+            return None
+        return CredentialData(data.auth, data.username, secrets.decrypt(key.secret_enc))
     secret = data.password
     stored = existing.credential if existing is not None else None
+    if stored is not None and stored.managed:
+        stored = None  # eigener Schlüssel gewählt, gespeicherter ist nicht gemeint
     if not secret and stored is not None and stored.kind is data.auth:
         secret = secrets.decrypt(stored.secret_enc)
     if not secret:
@@ -296,20 +317,32 @@ def save_mount(
     if not data.type.is_kernel_mount:
         m.auto_mount = False
 
-    # Zugangsdaten: jede Anbindung pflegt ihre eigenen.
-    cred = m.credential
+    # Zugangsdaten: entweder ein gespeicherter Schlüssel aus der Schlüsselverwaltung
+    # (geteilt, wird hier nie verändert) oder eigene Zugangsdaten nur dieser Anbindung.
+    current = m.credential
+    own = current if current is not None and not current.managed else None
     needs_cred = data.type is MountType.SFTP or (
         data.type is MountType.CIFS and bool(data.username)
     )
+    use_managed = (
+        data.type is MountType.SFTP
+        and data.auth is CredentialKind.SSH_KEY
+        and data.key_id != NEW_KEY
+    )
     if not needs_cred:
-        if cred is not None:
-            m.credential = None
-            s.flush()
-            if not cred.mounts:
-                s.delete(cred)
+        m.credential = None
+        m.username = None
+    elif use_managed:
+        key = s.get(Credential, int(data.key_id))
+        if key is None or not key.managed or key.kind is not CredentialKind.SSH_KEY:
+            s.rollback()
+            return None, {"key_id": "Schlüssel existiert nicht."}
+        m.credential = key
+        m.username = data.username
     else:
-        kind_changed = cred is not None and cred.kind is not data.auth
-        if cred is None or kind_changed:
+        m.username = None
+        cred = own
+        if cred is None or cred.kind is not data.auth:
             if data.auth is CredentialKind.SSH_KEY:
                 private, public = generate_ssh_keypair(f"netmover@{m.slug}")
                 secret, pub = private, public
@@ -320,9 +353,8 @@ def save_mount(
                     return None, errors
                 secret, pub = data.password, None
             if cred is None:
-                cred = Credential(name=f"mount:{m.slug}")
+                cred = Credential(name=f"mount:{m.slug}", managed=False)
                 s.add(cred)
-                m.credential = cred
             cred.kind = data.auth
             cred.secret_enc = secrets.encrypt(secret)
             cred.public_key = pub
@@ -330,6 +362,12 @@ def save_mount(
             cred.secret_enc = secrets.encrypt(data.password)
         cred.username = data.username
         cred.domain = data.domain or None
+        m.credential = cred
+    # Eigene Zugangsdaten, die nicht mehr gebraucht werden, entfernen.
+    if own is not None and m.credential is not own:
+        s.flush()
+        if not own.mounts:
+            s.delete(own)
     try:
         s.flush()
     except IntegrityError:
@@ -353,7 +391,8 @@ def delete_mount(s: Session, mounts: MountManager, mount_id: int) -> None:
     cred = m.credential
     s.delete(m)
     s.flush()
-    if cred is not None and not cred.mounts:
+    # Eigene Zugangsdaten gehen mit; Schlüssel aus der Schlüsselverwaltung bleiben.
+    if cred is not None and not cred.managed and not cred.mounts:
         s.delete(cred)
 
 
