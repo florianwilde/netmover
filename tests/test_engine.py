@@ -240,6 +240,9 @@ def test_source_not_deletable_keeps_target_and_prevents_duplicate(
 ) -> None:
     if path == "copy":
         monkeypatch.setattr(LocalDestination, "move_same_device", lambda *a, **k: None)
+    else:
+        # Dateisystem ohne renameat2 → link + unlink, unlink scheitert
+        monkeypatch.setattr("netmover.mover.destinations.rename_noreplace", lambda *a: False)
     write(src / "scan.pdf")
     real_unlink = os.unlink
 
@@ -637,22 +640,24 @@ def test_local_destination_must_exist(
 def test_fsync_before_final_rename(
     engine: Engine, rule_id: int, src: Path, dst: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from netmover.mover import fsops
+
     events: list[str] = []
-    real_fsync, real_link = os.fsync, os.link
+    real_fsync, real_rename = os.fsync, fsops.rename_noreplace
 
     def fsync(fd: int) -> None:
         events.append("fsync")
         real_fsync(fd)
 
-    def link(a: object, b: object, *args: object, **kw: object) -> None:
-        events.append(f"link:{Path(str(b)).name}")
-        real_link(a, b)  # type: ignore[arg-type]
+    def rename(a: object, b: object) -> bool:
+        events.append(f"rename:{Path(str(b)).name}")
+        return real_rename(a, b)  # type: ignore[arg-type]
 
     monkeypatch.setattr("netmover.mover.destinations.os.fsync", fsync)
-    monkeypatch.setattr("netmover.mover.destinations.os.link", link)
+    monkeypatch.setattr("netmover.mover.destinations.rename_noreplace", rename)
     write(src / "a.pdf")
     run(engine, snap(rule_id), src, dst)
-    assert events.index("fsync") < events.index("link:a.pdf")
+    assert events.index("fsync") < events.index("rename:a.pdf")
 
 
 @pytest.mark.usefixtures("cross_device")
@@ -678,3 +683,50 @@ def test_name_taken_between_check_and_link_is_never_overwritten(
     assert result.items[0].dst == str(dst / "scan-1.pdf")
     assert (dst / "scan.pdf").read_text() == "fremd"
     assert (dst / "scan-1.pdf").read_text() == "neu"
+
+
+# -- renameat2(RENAME_NOREPLACE) ----------------------------------------------------------
+
+
+def test_rename_noreplace(tmp_path: Path) -> None:
+    from netmover.mover.fsops import rename_noreplace
+
+    a, b = write(tmp_path / "a", "neu"), write(tmp_path / "b", "alt")
+    ino = a.stat().st_ino
+    if not rename_noreplace(a, tmp_path / "c"):
+        pytest.skip("Dateisystem des Testrechners kann kein renameat2")
+    assert (tmp_path / "c").stat().st_ino == ino and not a.exists()  # echtes rename
+    with pytest.raises(FileExistsError):
+        rename_noreplace(tmp_path / "c", b)
+    assert b.read_text() == "alt" and (tmp_path / "c").exists()
+
+
+@pytest.mark.usefixtures("cross_device")
+@pytest.mark.parametrize("supported", [True, False])
+def test_final_step_is_a_real_rename_when_possible(
+    engine: Engine,
+    rule_id: int,
+    src: Path,
+    dst: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    supported: bool,
+) -> None:
+    """Watcher wie Paperless sehen ein rename (IN_MOVED_TO); ohne Unterstützung
+    bleibt es beim link-Rückfallweg – überschrieben wird in keinem Fall."""
+    links: list[object] = []
+    real_link = os.link
+
+    def spy_link(a: object, b: object, *args: object, **kw: object) -> None:
+        links.append(b)
+        real_link(a, b)  # type: ignore[arg-type]
+
+    monkeypatch.setattr("netmover.mover.destinations.os.link", spy_link)
+    if not supported:
+        monkeypatch.setattr("netmover.mover.destinations.rename_noreplace", lambda *a: False)
+    write(dst / "a.pdf", "alt")
+    write(src / "a.pdf", "neu")
+    result = run(engine, snap(rule_id), src, dst)
+    assert result.items[0].dst == str(dst / "a-1.pdf")
+    assert (dst / "a.pdf").read_text() == "alt" and (dst / "a-1.pdf").read_text() == "neu"
+    assert bool(links) is not supported
+    assert [p.name for p in dst.iterdir() if p.name.endswith(".part")] == []

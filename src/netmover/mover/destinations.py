@@ -7,7 +7,8 @@ verlieren. Ablauf für jede Datei:
    Größe prüfen,
 2. Metadaten setzen (mtime, Modus, Eigentümer – Fehler sind nur Hinweise),
 3. prüfen, dass sich die Quelle seit der Stabilitätsmessung nicht verändert hat,
-4. atomar auf den Endnamen umbenennen – ohne zu überschreiben (``link`` bzw.
+4. atomar auf den Endnamen umbenennen – ohne zu überschreiben
+   (``renameat2(RENAME_NOREPLACE)``, sonst ``link`` + ``unlink`` bzw.
    SFTP-``rename``), außer „überschreiben“ ist ausdrücklich eingestellt,
 5. erst danach löscht der Aufrufer die Quelle.
 
@@ -33,6 +34,7 @@ from typing import Literal
 
 from netmover.models import CollisionPolicy
 from netmover.mounting.sftp import SftpSession
+from netmover.mover.fsops import rename_noreplace
 from netmover.mover.naming import collision_candidates
 from netmover.timeouts import CancelToken
 
@@ -283,6 +285,9 @@ class LocalDestination(Destination):
 
     def _link_noreplace(self, tmp: str, final: str) -> None:
         src, dst = self._p(tmp), self._p(final)
+        # Bevorzugt ein echtes rename ohne Überschreiben (Watcher sehen IN_MOVED_TO).
+        if rename_noreplace(src, dst):
+            return
         try:
             os.link(src, dst)
         except FileExistsError:
@@ -340,6 +345,9 @@ class LocalDestination(Destination):
                         raise CollisionSkip
                     continue
                 try:
+                    if rename_noreplace(src, self._p(cand)):
+                        final = cand
+                        break
                     os.link(src, self._p(cand))
                 except FileExistsError:
                     if policy is CollisionPolicy.SKIP:
