@@ -25,6 +25,7 @@ dependencies = [
     "itsdangerous>=2.2",
     "httpx>=0.27",
     "paramiko>=3.4",
+    "markdown>=3.5",
 ]
 
 [project.optional-dependencies]
@@ -33,6 +34,7 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "types-paramiko",
+    "types-Markdown",
     "shellcheck-py",
 ]
 
@@ -44,6 +46,10 @@ path = "src/netmover/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/netmover"]
+
+# Die Anleitung liegt für Gitea unter docs/ und wird für die Hilfe-Seite mitgeliefert.
+[tool.hatch.build.targets.wheel.force-include]
+"docs" = "netmover/web/help"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
