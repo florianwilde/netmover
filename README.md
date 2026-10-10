@@ -1,9 +1,364 @@
 # NetMover
 
-Selbst gehosteter Dienst mit Web-Oberfläche, der SMB/CIFS- und NFS-Freigaben
-verwaltet und Dateien zeitgesteuert zwischen ihnen verschiebt.
+Selbst gehosteter Dienst mit Weboberfläche, der **SMB/CIFS- und NFS-Freigaben
+verwaltet** und **Dateien zeitgesteuert verschiebt** – „alle N Sekunden Ordner 1
+prüfen, passende Dateien nach Ordner 2 bringen“. Quelle und Ziel sind
+unabhängig voneinander per SMB, NFS, lokal oder (nur als Ziel) per SFTP angebunden.
 
-> Status: in Entwicklung (Schritt 5 von 6). Vollständige Doku folgt mit Schritt 6.
+Typischer Einsatz: Ein Synology-NAS nimmt Scans entgegen, NetMover schiebt sie alle
+30 Sekunden in den Eingangsordner von Paperless-ngx.
+
+- [Wie NetMover Datenverlust verhindert](#wie-netmover-datenverlust-verhindert)
+- [Installation](#installation) · [Erster Start](#erster-start)
+- [Beispiel: Synology → Paperless](#beispiel-synology--paperless)
+- [Docker](#alternative-docker) · [Reverse Proxy](#reverse-proxy-mit-tls)
+- [Konfiguration](#konfiguration) · [Fehlersuche](#fehlersuche) · [Sicherheit](#sicherheit)
+- [Entwicklung](#entwicklung)
+
+## Wie NetMover Datenverlust verhindert
+
+Quelle und Ziel liegen fast immer auf verschiedenen Dateisystemen. „Verschieben“
+heißt deshalb immer **kopieren, prüfen, dann erst die Quelle löschen**:
+
+| Gefahr | Was NetMover tut |
+|---|---|
+| Halb geschriebene Scans | Datei wird nur angefasst, wenn Größe **und** Änderungszeit über das Stabilitätsfenster (Standard 5 s) gleich bleiben. `.part`, `.tmp`, `.crdownload`, `.filepart`, `.!ut` und versteckte Dateien werden ignoriert. |
+| Freigabe nicht eingehängt | Vor jedem Lauf prüft NetMover über `/proc/self/mountinfo`, ob Quelle und Ziel wirklich eingehängt sind – nie daran, ob Dateien da sind. Sonst: Lauf abbrechen, nichts anfassen. |
+| Wachsende Datei im Zielordner | Geschrieben wird in `.netmover-<uuid>.part`, dann `fsync`, Größenprüfung, erneute Prüfung der Quelle und atomares Umbenennen ohne Überschreiben. Erst danach wird die Quelle gelöscht. |
+| `scan001.pdf` existiert schon | `scan001-1.pdf`, `scan001-2.pdf`, … – jedes Mal neu gegen das Dateisystem geprüft. Überschreiben nur, wenn ausdrücklich eingestellt. |
+| Kopiermodus kopiert endlos | Übertragene Dateiversionen (Pfad, Größe, mtime) werden gemerkt. |
+| Hängender NFS-Mount, „Stale file handle“ | Jeder Lauf arbeitet in einem eigenen Worker mit Zeitlimit; gestörte Mounts werden per `umount -l` neu eingehängt (max. 3 Versuche). |
+| Ziel voll | Vor jeder Kopie: freier Platz ≥ Dateigröße + 5 %. |
+| Stiller Ausfall | Statusseite und `/healthz` werden rot, wenn eine Regel länger als das Dreifache ihres Intervalls keinen erfolgreichen Lauf hatte. |
+
+## Installation
+
+### Wo installieren?
+
+| Variante | Empfehlung |
+|---|---|
+| **VM mit Debian 13** | ✅ Empfohlen. Einhängen funktioniert ohne Sonderkonfiguration. |
+| Proxmox-Host direkt | Funktioniert, aber zusätzliche Software auf dem Hypervisor ist meist unerwünscht. |
+| **Privilegierter** LXC | Möglich: `pct set <id> -features mount=cifs;nfs`. |
+| Unprivilegierter LXC | ❌ Der Kernel erlaubt dort kein CIFS/NFS-Mount. |
+| Docker | Möglich, siehe [Alternative: Docker](#alternative-docker). |
+
+### systemd-Dienst (empfohlen)
+
+```bash
+apt install -y git
+git clone https://git.wilde-server.de/florian.wilde/netmover.git
+cd netmover
+sudo ./deploy/install.sh
+```
+
+Das Skript installiert `python3-venv`, `cifs-utils` und `nfs-common` und richtet
+NetMover in `/opt/netmover/venv` ein. Danach installiert es
+[`deploy/netmover.service`](deploy/netmover.service) und startet den Dienst.
+Ein Update ist derselbe Aufruf nach einem `git pull`.
+
+Was wo liegt:
+
+| Pfad | Inhalt |
+|---|---|
+| `/var/lib/netmover/netmover.db` | Datenbank (SQLite) |
+| `/var/lib/netmover/secret.key` | Schlüssel für die Zugangsdaten (0600) – **mitsichern!** |
+| `/etc/netmover/netmover.env` | Einstellungen (Port, Logs, …) |
+| `/mnt/netmover/<name>` | Mountpoints – nur NetMover legt hier etwas an |
+| `/run/netmover` | kurzlebige Credentials-Dateien für `mount.cifs` |
+
+**Warum als root?** Ein- und Aushängen braucht `CAP_SYS_ADMIN`. Außerdem soll
+NetMover Dateien auf beliebigen Freigaben lesen, löschen und mit den richtigen
+Eigentümern anlegen können. Die Unit härtet den Dienst so weit, wie es sich mit
+Mounten verträgt: `ProtectSystem=full`, `PrivateTmp`, `NoNewPrivileges`, Zustand nur
+für root lesbar. Weil diese Optionen einen eigenen Mount-Namespace erzeugen, steht
+`MountFlags=shared` in der Unit. Nur so sieht das System die Mounts:
+
+```bash
+findmnt -R /mnt/netmover    # sollte die eingehängten Freigaben zeigen
+```
+
+**Beim Beenden bleiben die Mounts eingehängt**, weil andere Programme sie benutzen
+könnten. Beim Start werden alle Anbindungen mit „automatisch einhängen“
+wiederhergestellt. Erst danach startet der Scheduler.
+
+## Erster Start
+
+NetMover lauscht standardmäßig nur auf `127.0.0.1:8080`. Vom Arbeitsplatz aus
+erreichst du die Oberfläche per SSH-Tunnel:
+
+```bash
+ssh -L 8080:127.0.0.1:8080 root@netmover-vm
+# dann im Browser: http://localhost:8080
+```
+
+Beim ersten Aufruf musst du ein Administratorpasswort setzen (mindestens 10 Zeichen).
+Dafür brauchst du den **Einrichtungscode** aus dem Log. Damit kann nicht irgendwer
+im Netz, der die Seite zuerst öffnet, das Passwort setzen:
+
+```bash
+journalctl -u netmover | grep setup.required
+# … event=setup.required code=4f2a-91c0-7d3e …
+```
+
+Passwort vergessen? `sudo /opt/netmover/venv/bin/netmover reset-password`, dann
+`systemctl restart netmover` und die Einrichtung neu durchlaufen.
+
+## Beispiel: Synology → Paperless
+
+Ziel: Scans landen auf dem NAS in `scans`. NetMover schiebt PDFs alle 30 Sekunden
+in den Consume-Ordner von Paperless, das in einem LXC per SSH erreichbar ist.
+
+### 1. Synology vorbereiten
+
+1. **Systemsteuerung → Benutzer** → Benutzer `netmover` anlegen, Lese-/Schreibrecht
+   auf den gemeinsamen Ordner `scans`.
+2. **Systemsteuerung → Dateidienste → SMB**: aktiviert. Unter *Erweitert* als
+   minimales Protokoll SMB2 oder höher.
+
+### 2. Anbindung „Synology Scans“ anlegen
+
+*Anbindungen → Neue Anbindung*:
+
+| Feld | Wert |
+|---|---|
+| Name | `Synology Scans` |
+| Typ | SMB/CIFS |
+| Server | `192.168.1.10` (IP des NAS) |
+| Freigabe | `scans` |
+| Benutzername / Passwort | `netmover` / … |
+| Zusatzoptionen | `vers=3.0` |
+| Beim Start automatisch einhängen | ✓ |
+
+Klicke auf **Testen**. Alle drei Schritte (Einhängen, Lesen, Schreiben) sollten ✓
+zeigen, und die Rolle sollte „Quelle mit Löschen“ lauten. Danach speichern und
+**Einhängen**.
+
+### 3. Paperless-LXC vorbereiten (SFTP-Ziel)
+
+Lege in NetMover die *Anbindung → Neue Anbindung* an:
+
+| Feld | Wert |
+|---|---|
+| Name | `Paperless` |
+| Typ | SFTP (nur Ziel) |
+| Server / SSH-Port | IP des LXC / `22` |
+| Freigabe / Pfad | `/opt/paperless_data/consume` |
+| Anmeldeart | SSH-Schlüssel (NetMover erzeugt ihn) |
+| Benutzername | `paperless` (der Benutzer, unter dem Paperless läuft) |
+
+Nach dem Speichern zeigt NetMover den **öffentlichen Schlüssel**. Trage ihn im LXC
+ein, und zwar so, dass der Schlüssel **nur SFTP** darf:
+
+```bash
+# im Paperless-LXC als root
+install -d -m 700 -o paperless -g paperless ~paperless/.ssh
+echo 'restrict,command="/usr/lib/openssh/sftp-server" ssh-ed25519 AAAA… netmover@paperless' \
+  >> ~paperless/.ssh/authorized_keys
+chown paperless:paperless ~paperless/.ssh/authorized_keys
+chmod 600 ~paperless/.ssh/authorized_keys
+```
+
+Dann in NetMover bei der Anbindung **Testen**. Prüfe den angezeigten Fingerabdruck
+des Hostschlüssels. Ermitteln kannst du ihn im LXC mit
+`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`. NetMover hält ihn beim ersten
+Test fest und verweigert später jede Verbindung, wenn er sich ändert.
+
+> Weil die Dateien als Benutzer `paperless` ankommen, darf Paperless sie nach dem
+> Einlesen auch löschen. Paperless-ngx (aktuelle Versionen mit `watchfiles`)
+> bemerkt neue Dateien sofort. Ältere Versionen, die nur auf
+> `IN_CLOSE_WRITE`/`IN_MOVED_TO` lauschen, siehe [Fehlersuche](#fehlersuche).
+
+### 4. Regel anlegen
+
+*Regeln → Neue Regel*:
+
+| Feld | Wert |
+|---|---|
+| Name | `Scans → Paperless` |
+| Intervall | `30` |
+| Quelle | `Synology Scans`, Unterordner leer |
+| Filter | Glob `*.pdf` |
+| Ziel | Anbindung `Paperless`, Zielordner leer |
+| Aktion | verschieben |
+| Wenn Datei existiert | umbenennen |
+| Stabilitätsfenster | `5` |
+| Quarantäneordner | `_quarantaene` (optional) |
+
+Klicke auf **Probelauf**. Die Tabelle zeigt, welche Datei wohin ginge, ohne etwas
+zu verändern. Danach aktivieren und auf der Statusseite verfolgen.
+
+**Getrennt nach Unterordnern?** Scannt z. B. jede Person in einen eigenen
+Unterordner (`scans/max`, `scans/erika`), legst du pro Unterordner eine Regel mit
+eigenem Quell-Unterordner und eigenem Ziel an.
+
+**Paperless lokal statt per SSH?** Läuft Paperless auf demselben Host, wähle als Ziel
+„Lokaler Pfad“ (z. B. `/opt/paperless_data/consume`). Der Ordner muss existieren und
+darf nicht unter `/mnt/netmover` liegen. Mit „Eigentümer setzen“ (z. B. `1000:1000`)
+gehören die Dateien danach dem Paperless-Benutzer.
+
+### NFS statt SMB
+
+Am NAS: *Dateidienste → NFS* aktivieren. Dann unter *Gemeinsamer Ordner →
+Bearbeiten → NFS-Berechtigungen* eine Regel mit der IP des NetMover-Hosts anlegen.
+In NetMover Typ „NFS 4“, Freigabe `/volume1/scans`.
+
+**Root-Squash:** NetMover läuft als root. Synology bildet root standardmäßig auf
+`nobody` ab, dann scheitert das Schreiben oder `chown`. Der **Testen**-Knopf erkennt
+das und sagt es dir. Abhilfe in der NFS-Regel: *Squash → „Keine Zuordnung“* (No
+mapping) oder „Alle Benutzer zu admin zuordnen“.
+
+## Alternative: Docker
+
+```bash
+mkdir -p /mnt/netmover
+docker compose up -d --build
+docker compose logs | grep setup.required
+```
+
+[`compose.yml`](compose.yml) gibt dem Container die nötigen Rechte:
+`cap_add: [SYS_ADMIN, DAC_READ_SEARCH]` und `security_opt: [apparmor:unconfined]`.
+
+> **Wichtig:** `/mnt/netmover` muss als `bind` mit **`propagation: rshared`**
+> eingebunden sein. Ohne das bleiben die Mounts im Container gefangen: NetMover
+> selbst sieht sie, aber weder der Host noch andere Container (z. B. Paperless).
+> Getestet: Mit `rshared` erscheint ein im Container eingehängtes Dateisystem
+> sofort unter `/mnt/netmover` auf dem Host, ohne `rshared` nicht.
+
+Lokale Ziele musst du zusätzlich als Volume einbinden. Für NFSv3 im Container die
+Option `nolock` setzen oder besser NFSv4 nehmen; NFSv3-Locking braucht
+`rpc.statd`, und den gibt es im Container nicht.
+
+**Unterschied zum systemd-Dienst:** Der Dienst direkt auf dem Host braucht keine
+Propagation-Tricks, keine AppArmor-Ausnahme und keine zusätzlichen Volumes. Docker
+kapselt die Software, hat aber trotz Container `CAP_SYS_ADMIN` und ist damit kaum
+weniger mächtig als root auf dem Host.
+
+## Reverse Proxy mit TLS
+
+NetMover gehört **nicht ins Internet**. Es hat root-Rechte, hängt beliebige
+Freigaben ein und speichert Zugangsdaten zu deinem NAS. Ein Fehler oder ein
+schwaches Passwort wäre ein direkter Weg in dein Netz. Für den Zugriff im LAN gehört
+ein Reverse Proxy mit TLS davor; für unterwegs nimm VPN (z. B. WireGuard).
+
+Beispiel Caddy auf demselben Host:
+
+```caddyfile
+netmover.lan {
+    tls internal
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+Beispiel nginx:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name netmover.lan;
+    ssl_certificate     /etc/ssl/netmover.crt;
+    ssl_certificate_key /etc/ssl/netmover.key;
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;   # Mount-Tests können dauern
+    }
+}
+```
+
+Dann in `/etc/netmover/netmover.env`:
+
+```bash
+NETMOVER_COOKIE_SECURE=true          # Session-Cookie nur noch per HTTPS
+NETMOVER_FORWARDED_ALLOW_IPS=127.0.0.1
+```
+
+## Konfiguration
+
+Umgebungsvariablen (in `/etc/netmover/netmover.env`); alles Übrige stellst du in
+der Oberfläche unter *Einstellungen* ein:
+
+| Variable | Standard | Bedeutung |
+|---|---|---|
+| `NETMOVER_HOST` | `127.0.0.1` | Adresse, auf der NetMover lauscht |
+| `NETMOVER_PORT` | `8080` | Port |
+| `NETMOVER_DATA_DIR` | `/var/lib/netmover` | Datenbank und Schlüssel |
+| `NETMOVER_MOUNT_BASE` | `/mnt/netmover` | Basisverzeichnis der Mountpoints |
+| `NETMOVER_RUN_DIR` | `/run/netmover` | kurzlebige Credentials-Dateien |
+| `NETMOVER_COOKIE_SECURE` | `false` | Cookie nur per HTTPS (hinter TLS-Proxy: `true`) |
+| `NETMOVER_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Proxy-IPs, deren `X-Forwarded-*` gilt |
+| `NETMOVER_SESSION_HOURS` | `12` | Gültigkeit der Anmeldung |
+| `NETMOVER_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `NETMOVER_LOG_FORMAT` | `logfmt` | `logfmt` oder `json` (ein Ereignis pro Zeile) |
+
+In der Oberfläche unter *Einstellungen* stellst du ein:
+- Aufbewahrung der Protokolle (Standard 30 Tage).
+- Webhook-Benachrichtigung: „bei jedem Fehler“ oder „nach N Fehlern in Folge“,
+  jeweils mit Entwarnung.
+- Export und Import der Konfiguration, **ohne** Zugangsdaten und Webhook-URL.
+
+Webhook-Vorlagen (Platzhalter `$event $title $message $rule $time $host`):
+
+| Dienst | URL | Content-Type | Vorlage |
+|---|---|---|---|
+| ntfy | `https://ntfy.sh/<topic>` | `text/plain` | `$title: $message` |
+| Gotify | `https://gotify.lan/message?token=…` | `application/json` | `{"title": "$title", "message": "$message", "priority": 5}` |
+| eigener Empfänger | beliebig | `application/json` | Standardvorlage |
+
+`GET /healthz` liefert `200` oder `503` mit der Liste der Probleme (ohne Anmeldung),
+z. B. für Uptime Kuma.
+
+## Fehlersuche
+
+```bash
+journalctl -u netmover -f                    # Log live
+journalctl -u netmover | grep level=error
+findmnt -R /mnt/netmover                     # was ist wirklich eingehängt?
+```
+
+| Meldung / Symptom | Ursache und Abhilfe |
+|---|---|
+| `mount error(13): Permission denied` (CIFS) | Benutzer oder Passwort falsch, oder keine Rechte auf die Freigabe. |
+| `mount error(2): No such file or directory` | Freigabename falsch geschrieben (Groß/klein!). |
+| `mount error(112): Host is down` | NAS nicht erreichbar, oder SMB1 erwartet: `vers=3.0` bzw. `vers=2.1` probieren. |
+| `… helper program` / `unknown filesystem type` | `apt install cifs-utils nfs-common` |
+| `Operation not permitted` / `only root can do that` | Kein `CAP_SYS_ADMIN`: unprivilegierter LXC oder Docker ohne `cap_add`. |
+| `access denied by server` (NFS) | NFS-Regel am NAS fehlt für die IP dieses Hosts (oder falsches Subnetz in der Regel). |
+| Test: „Root-Squash“ | Siehe [NFS statt SMB](#nfs-statt-smb); `chown` wird bis dahin übersprungen. |
+| „… ist nicht leer“ beim Einhängen | Im Mountpoint liegen Dateien, die geschrieben wurden, als nichts eingehängt war. Inhalt prüfen und sichern, Verzeichnis leeren, erneut einhängen. |
+| „nicht eingehängt – Lauf abgebrochen“ | Die Freigabe ist weg (z. B. von Hand ausgehängt). Auf der Anbindungsseite **Einhängen**. NetMover hängt verschwundene Mounts absichtlich nicht selbst neu ein. |
+| „gestört (ESTALE …)“, danach wieder OK | NAS-Neustart; NetMover hat neu eingehängt. Bleibt der Fehler: Netzwerk/NAS prüfen. |
+| „Keine Reaktion seit 120 s“ | Ein Dateizugriff hängt (meist NFS mit `hard`). Die Regel bleibt blockiert („läuft seit …“), bis der Zugriff zurückkehrt; die Anbindung wird vor dem nächsten Lauf geprüft. |
+| „Hostschlüssel … hat sich geändert“ (SFTP) | Wurde der Zielserver neu aufgesetzt? Dann bei der Anbindung „Hostschlüssel zurücksetzen“ und neu testen. Sonst **nicht** verbinden. |
+| SFTP: „Anmeldung abgelehnt“ | Öffentlicher Schlüssel fehlt in `authorized_keys`, oder Rechte von `~/.ssh` stimmen nicht (700/600, Eigentümer). |
+| Paperless bemerkt neue Dateien nicht | Ältere Paperless-Versionen: `PAPERLESS_CONSUMER_POLLING=10` setzen. |
+| Regel gelb „länger als 3 × Intervall“ | Seit dem Dreifachen des Intervalls kein erfolgreicher Lauf; Protokoll der Regel ansehen. |
+| Einrichtungscode verloren | `systemctl restart netmover` erzeugt einen neuen. |
+
+## Sicherheit
+
+- **Nicht ins Internet stellen** (siehe [Reverse Proxy](#reverse-proxy-mit-tls)).
+- Zugangsdaten liegen nur verschlüsselt in der Datenbank (Fernet, Schlüssel
+  `secret.key`, 0600). Die Oberfläche zeigt sie nie an; in der Prozessliste stehen
+  sie ebenfalls nie, weil `mount.cifs` eine kurzlebige Credentials-Datei bekommt.
+  Ausgaben von `mount` werden geschwärzt, bevor sie protokolliert werden.
+- **Sichere `secret.key` zusammen mit der Datenbank.** Ohne den Schlüssel sind die
+  gespeicherten Passwörter verloren.
+- Anmeldung:
+  - Ein Administratorkonto mit Argon2-Passworthash.
+  - Sperre nach 5 Fehlversuchen.
+  - Session-Cookie `HttpOnly`, `SameSite=Lax`.
+  - CSRF-Token bei jedem POST.
+  - Strikte Content-Security-Policy ohne Inline-Skripte.
+- Eingaben, die in `mount` landen, werden streng geprüft. Zusatzoptionen
+  sind nur aus einer Allowlist erlaubt, `credentials`, `username`, `password` und
+  `pass` sind gesperrt, `mount` wird nie über eine Shell aufgerufen.
+- Mountpoints entstehen ausschließlich unter `/mnt/netmover`; NetMover ändert
+  `/etc/fstab` nie.
+- SFTP-Ziele: Schlüssel per `restrict,command="/usr/lib/openssh/sftp-server"` auf
+  SFTP beschränken; der Hostschlüssel wird festgehalten.
 
 ## Entwicklung
 
@@ -12,10 +367,26 @@ python3 -m venv .venv            # oder: --without-pip + get-pip.py
 .venv/bin/pip install -e '.[dev]'
 .venv/bin/pytest
 .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/mypy
-NETMOVER_DATA_DIR=$PWD/data .venv/bin/netmover migrate
+
+# Oberfläche ohne root und ohne NAS ausprobieren (simulierte Mounts):
+NETMOVER_DATA_DIR=/tmp/nm NETMOVER_RUN_DIR=/tmp/nm/run NETMOVER_MOUNT_BASE=/tmp/nm/mnt \
+NETMOVER_MOUNT_BACKEND=fake .venv/bin/netmover serve
+# Freigaben simulieren: mkdir -p /tmp/nm/fake/remote/<server>/<freigabe>
 ```
 
-Neue Migration nach Modelländerung:
+Aufbau:
+
+| Modul | Aufgabe |
+|---|---|
+| `mounting/` | `MountBackend` (Linux/Fake), Mount-Verwaltung, Test, Wiederherstellung, SFTP |
+| `mover/` | Scan, Stabilität, atomares Schreiben, Kollisionen, Buchführung, Regellauf |
+| `runs.py`, `scheduler.py`, `health.py`, `notify.py` | Protokoll, Zeitsteuerung, Gesundheit, Webhook |
+| `admin.py`, `transfer.py`, `web/` | Formulare, Export/Import, Oberfläche |
+
+Die gesamte Mover-Logik ist mit dem `FakeMountBackend` ohne root testbar. SFTP
+wird gegen einen echten SFTP-Server im Testprozess getestet.
+
+Neue Migration nach einer Modelländerung:
 
 ```bash
 NETMOVER_DATA_DIR=$PWD/data .venv/bin/alembic revision --autogenerate -m "…"
@@ -23,11 +394,19 @@ NETMOVER_DATA_DIR=$PWD/data .venv/bin/alembic revision --autogenerate -m "…"
 
 Veröffentlichte Migrationen (ab v0.1.0) werden nie mehr geändert, nur ergänzt.
 
-## Arbeitsweise
+### Arbeitsweise
 
 - Commits nach [Conventional Commits](https://www.conventionalcommits.org/de/)
   (`feat:`, `fix:`, `docs:`, `test:`, `chore:` …).
-- Jede nutzerrelevante Änderung bekommt einen Eintrag unter `[Unreleased]` in
-  [CHANGELOG.md](CHANGELOG.md). Beim Release wird der Abschnitt versioniert,
-  die Version in `src/netmover/__init__.py` angehoben und ein Tag `vX.Y.Z` gesetzt.
-- Arbeitszeit und Entscheidungen: [DEVLOG.md](DEVLOG.md).
+- Jede nutzerrelevante Änderung kommt unter `[Unreleased]` in
+  [CHANGELOG.md](CHANGELOG.md). Bei einem Release:
+  1. Den Abschnitt `[Unreleased]` mit Versionsnummer versehen.
+  2. Die Version in `src/netmover/__init__.py` anheben.
+  3. Einen Tag `vX.Y.Z` setzen.
+- Arbeitszeit und Entscheidungen stehen in [DEVLOG.md](DEVLOG.md).
+- htmx 2.0.4 liegt unter `src/netmover/web/static/htmx.min.js`
+  (SHA-256 `e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447`).
+
+## Lizenz
+
+MIT
