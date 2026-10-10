@@ -3,7 +3,7 @@
 Selbst gehosteter Dienst mit Web-Oberfläche, der SMB/CIFS- und NFS-Freigaben
 verwaltet und Dateien zeitgesteuert zwischen ihnen verschiebt.
 
-> Status: in Entwicklung (Schritt 1 von 6). Vollständige Doku folgt mit Schritt 6.
+> Status: in Entwicklung (Schritt 2 von 6). Vollständige Doku folgt mit Schritt 6.
 
 ## Entwicklung
 
@@ -20,6 +20,8 @@ Neue Migration nach Modelländerung:
 ```bash
 NETMOVER_DATA_DIR=$PWD/data .venv/bin/alembic revision --autogenerate -m "…"
 ```
+
+Veröffentlichte Migrationen (ab v0.1.0) werden nie mehr geändert, nur ergänzt.
 
 ## Arbeitsweise
 

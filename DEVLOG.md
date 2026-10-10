@@ -8,9 +8,53 @@ Zeiten in Ortszeit (Europe/Berlin).
 | Datum      | Von   | Bis   | Dauer | Schritt | Thema                                  |
 |------------|-------|-------|-------|---------|----------------------------------------|
 | 2026-10-10 | 17:21 | 17:27 | 0:06  | 1       | Gerüst, Datenmodell, Migrationen       |
-| **Summe**  |       |       | **0:06** |      |                                        |
+| 2026-10-10 | 18:35 | 18:48 | 0:13  | 2       | Mount-Schicht, Validierung, SFTP       |
+| **Summe**  |       |       | **0:19** |      |                                        |
 
 ---
+
+## 2026-10-10 · 18:35–18:48 · Schritt 2: Mount-Schicht, Validierung, SFTP
+
+**Anforderungsänderung (Rücksprache)**
+- Ziel ist voraussichtlich ein LXC, der nur per SSH erreichbar ist → neuer
+  Anbindungstyp `sftp` (nur als Ziel). Host: VM mit Debian 13 empfohlen.
+- `/healthz` zählt nur aktive Anbindungen; Python ≥ 3.12 (Debian 13: 3.13).
+
+**Erledigt**
+- `validation.py`: strikte Muster für Server/Freigabe/Pfade, Options-Allowlist
+  pro Typ, gesperrte Schlüssel, Werte gegen `^[A-Za-z0-9._:/@-]+$`.
+- `crypto.py`: Fernet-Schlüssel (0600, O_EXCL), Ed25519-Schlüsselerzeugung,
+  Schwärzung.
+- `mounting/`: `MountBackend`, `LinuxMountBackend`, `FakeMountBackend`,
+  `mountinfo`-Parser (Oktal-Escapes, übereinanderliegende Mounts),
+  `MountManager` (einhängen, aushängen, Wiederherstellung beim Start, Test,
+  Lebenszeichen, Wiederherstellung), SFTP-Anbindung mit TOFU-Hostschlüssel.
+- `timeouts.py`: Zugriffe in Daemon-Threads mit Zeitlimit (kein Pool, damit
+  hängende Threads nichts blockieren).
+- 113 neue Tests (123 gesamt), u. a. gegen einen echten SFTP-Server im Prozess.
+- Mutationsprobe: 5 absichtlich eingebaute Fehler (Credentials-Datei bleibt liegen,
+  fehlende ismount-Prüfung, kein `umount -l`, nicht-leerer Mountpoint, gesperrte
+  Optionen) werden alle von Tests erkannt.
+
+**Entscheidungen**
+- Migration 0001 angepasst statt 0002 – noch kein Release, keine Datenbank im
+  Einsatz. Ab v0.1.0 sind veröffentlichte Migrationen unveränderlich.
+- Mount verschwunden (nicht eingehängt) → Lauf abbrechen, **kein** automatisches
+  Neu-Einhängen (Fallstrick 2). Gestört (ESTALE & Co.) → Neu-Einhängen (Fallstrick 13).
+- Root-Squash-Auswertung als reine Funktion (`assess_write`), damit testbar ohne
+  root und ohne NAS.
+- `statvfs`/`fsync` per SFTP über die OpenSSH-Erweiterungen; fehlen sie, gibt es
+  einen Hinweis statt eines Fehlers.
+- Ruff-Regel `PTH` abgeschaltet: die bewussten `os.open`/`os.fsync`-Aufrufe
+  sind hier richtig.
+
+**Stolpersteine**
+- Funktionen und Klassen mit dem Präfix `test_`/`Test` in Produktionscode würden
+  von pytest beim Import gesammelt → `check_connection`, `CheckReport`.
+
+**Offen / nächster Schritt**
+- Schritt 3: Mover (Stabilität, Atomarität, Kollisionen, Kopier-Buchführung,
+  Worker mit Zeitlimit, Quarantäne) mit Zielen lokal/Kernel-Mount und SFTP.
 
 ## 2026-10-10 · 17:21–17:27 · Schritt 1: Gerüst, Datenmodell, Migrationen
 

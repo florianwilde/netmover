@@ -16,6 +16,24 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 - Zeitzonenbewusste Zeitstempel (UTC) auch auf SQLite.
 - Strukturierte Logs (logfmt oder JSON, ein Ereignis pro Zeile).
 - CLI `netmover migrate` / `netmover version`.
+- SFTP als Zieltyp (`sftp`) für Ziele, die nur per SSH erreichbar sind; Anmeldung
+  per selbst erzeugtem Ed25519-Schlüssel oder Passwort, Hostschlüssel wird beim
+  ersten Test festgehalten und danach erzwungen.
+- Eingabeprüfung für Server, Freigaben, Pfade und Mount-Optionen (Allowlist pro
+  Typ; `credentials`, `username`, `password`, `pass`, `domain` gesperrt).
+- Fernet-Verschlüsselung der Zugangsdaten (`secret.key`, 0600, beim ersten Start
+  erzeugt) und Schwärzung bekannter Geheimnisse in `mount`-Ausgaben.
+- Mount-Schicht hinter `MountBackend` mit `LinuxMountBackend` (`mount`/`umount`
+  nur mit Argumentliste, CIFS-Zugangsdaten über kurzlebige Datei unter
+  `/run/netmover`) und `FakeMountBackend` für Tests ohne root.
+- Mount-Test in drei Schritten (einhängen, lesen, schreiben) mit Rollen
+  („nur Quelle, kopieren“ / „Quelle mit Löschen“ / „Ziel“) und Root-Squash-Erkennung
+  inklusive Synology-Hinweis.
+- Lebenszeichen mit Zeitlimit vor jedem Lauf; gestörte Mounts (ESTALE, EIO,
+  ENOTCONN, Zeitüberschreitung) werden per `umount -l` bis zu dreimal mit
+  wachsendem Abstand neu eingehängt.
+- Mountpoints ausschließlich unter `/mnt/netmover/<slug>`, müssen vor dem
+  Einhängen leer sein und werden nach dem Aushängen entfernt.
 
 ### Behoben
 - Löschen von Zugangsdaten, die noch von einem Mount benutzt werden, trennt den
