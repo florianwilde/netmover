@@ -1,8 +1,10 @@
 #!/bin/sh
 # NetMover auf Debian 13 installieren bzw. aktualisieren (als root ausführen).
 #
-#   ./deploy/install.sh                 # aus diesem Verzeichnis installieren
-#   ./deploy/install.sh 'git+https://git.wilde-server.de/florian.wilde/netmover.git@v0.1.0'
+#   git clone https://git.wilde-server.de/florian.wilde/netmover.git /opt/netmover/src
+#   /opt/netmover/src/deploy/install.sh
+#
+# Spätere Updates: netmover-update (siehe deploy/update.sh).
 set -eu
 
 SOURCE="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -16,7 +18,7 @@ fi
 echo "==> Pakete"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq python3 python3-venv cifs-utils nfs-common >/dev/null
+apt-get install -y -qq python3 python3-venv cifs-utils nfs-common git >/dev/null
 
 echo "==> Virtuelle Umgebung in $PREFIX/venv"
 install -d -m 0755 "$PREFIX"
@@ -30,6 +32,9 @@ if [ ! -f /etc/netmover/netmover.env ]; then
     install -m 0640 "$(dirname "$0")/netmover.env" /etc/netmover/netmover.env
 fi
 install -d -m 0755 /mnt/netmover
+
+echo "==> Update-Skript"
+install -m 0755 "$(dirname "$0")/update.sh" /usr/local/sbin/netmover-update
 
 echo "==> systemd"
 install -m 0644 "$(dirname "$0")/netmover.service" /etc/systemd/system/netmover.service
