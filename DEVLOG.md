@@ -10,9 +10,36 @@ Zeiten in Ortszeit (Europe/Berlin).
 | 2026-10-10 | 17:21 | 17:27 | 0:06  | 1       | Gerüst, Datenmodell, Migrationen       |
 | 2026-10-10 | 18:35 | 18:48 | 0:13  | 2       | Mount-Schicht, Validierung, SFTP       |
 | 2026-10-10 | 18:53 | 19:07 | 0:14  | 3       | Mover-Logik                            |
-| **Summe**  |       |       | **0:33** |      |                                        |
+| 2026-10-10 | 19:10 | 19:17 | 0:07  | 4       | Scheduler, Protokoll, Benachrichtigung |
+| **Summe**  |       |       | **0:40** |      |                                        |
 
 ---
+
+## 2026-10-10 · 19:10–19:17 · Schritt 4: Scheduler und Protokollierung
+
+**Erledigt**
+- `settings_store.py` (Laufzeit-Einstellungen), `notify.py` (Webhook),
+  `runs.py` (Lauf ausführen + protokollieren, Zähler, Aufräumen),
+  `health.py`, `scheduler.py`, `app_state.py` (Verdrahtung, Start/Stop).
+- 24 neue Tests (207 gesamt). Mutationsprobe: 6/6 erkannt.
+
+**Entscheidungen**
+- Erfolg = `ok` oder `partial` (Werkzeug arbeitet); Fehlschlag = `error` oder
+  `partial` (für Benachrichtigungen). Übersprungen zählt nicht; manueller
+  Probelauf ändert keine Zähler.
+- Bezug für „zu lange kein Erfolg“: spätester von letztem Erfolg, Anlage der
+  Regel und Dienststart – sonst wäre nach einem Neustart sofort alles rot.
+- „Nach N Fehlern“ meldet genau einmal beim Erreichen der Schwelle, danach
+  Entwarnung beim ersten Erfolg (abschaltbar).
+- `max_instances=3` im Scheduler, damit überlappende Termine beim eigenen
+  Regel-Lock ankommen und protokolliert werden, statt dass APScheduler sie still verwirft.
+- Leere Läufe (alle 30 s) loggen nur auf DEBUG; in `runs` stehen sie trotzdem
+  (die Oberfläche filtert standardmäßig auf Läufe mit Aktivität).
+- Webhook-URL wird nie geloggt (enthält oft ein Token).
+
+**Stolpersteine**
+- Zwei Testfehler lagen in den Tests selbst (Fake-Symlink bei `resolve()`,
+  Jitter in der Zeitschranke vergessen).
 
 ## 2026-10-10 · 18:53–19:07 · Schritt 3: Mover-Logik
 

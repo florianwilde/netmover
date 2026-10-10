@@ -54,6 +54,19 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
   Inaktivitäts-Zeitlimit; ein hängender Worker blockiert nur seine eigene Regel.
 - Lokale Ziele unter dem Mount-Basisverzeichnis werden abgelehnt (dort muss die
   Anbindung als Ziel gewählt werden, damit „eingehängt?“ geprüft wird).
+- Scheduler (APScheduler): ein Job pro aktiver Regel mit zufälligem
+  Startversatz und Jitter; Läufe in eigenem Thread-Pool; Abgleich nach Änderungen.
+- Protokoll: pro Lauf eine Zeile (auch übersprungene Termine), Einzeldateien
+  in `run_items` (max. 2000 pro Lauf); Regelzähler letzter Lauf, letzter Erfolg,
+  Fehler in Folge.
+- Aufräumen der Protokolle nach konfigurierbarer Frist (Standard 30 Tage).
+- Gesundheitsprüfung: Scheduler-Herzschlag, Anbindungen im Fehlerzustand,
+  Regeln ohne Erfolg seit mehr als dem Dreifachen ihres Intervalls.
+- Webhook-Benachrichtigung mit frei wählbarer Vorlage (JSON-sicher), Modus
+  „bei jedem Fehler“ oder „nach N Fehlern in Folge“, optional Entwarnung;
+  auch für Anbindungen, deren Wiederherstellung scheitert.
+- Dienststart: Migration → Schlüssel → Anbindungen wiederherstellen → Scheduler;
+  beim Beenden werden Mounts nicht ausgehängt.
 
 ### Behoben
 - Löschen von Zugangsdaten, die noch von einem Mount benutzt werden, trennt den
