@@ -1,0 +1,37 @@
+# NetMover per Docker Compose. Vorher auf dem Host:
+#   mkdir -p /mnt/netmover
+# Die Weboberfläche ist nur auf dem Host selbst erreichbar (127.0.0.1:8080).
+services:
+  netmover:
+    build: .
+    image: netmover:0.1.0
+    container_name: netmover
+    restart: unless-stopped
+    cap_add:
+      - SYS_ADMIN        # mount/umount
+      - DAC_READ_SEARCH  # mount.cifs liest die Credentials-Datei
+    security_opt:
+      - apparmor:unconfined  # Dockers AppArmor-Profil verbietet mount
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      NETMOVER_LOG_LEVEL: INFO
+      # Hinter einem Reverse Proxy mit HTTPS:
+      # NETMOVER_COOKIE_SECURE: "true"
+      # NETMOVER_FORWARDED_ALLOW_IPS: "172.16.0.0/12"
+    volumes:
+      - netmover-data:/var/lib/netmover
+      # WICHTIG: rshared – sonst bleiben die Mounts im Container gefangen und
+      # weder der Host noch andere Container sehen sie.
+      - type: bind
+        source: /mnt/netmover
+        target: /mnt/netmover
+        bind:
+          propagation: rshared
+      # Lokale Ziele (z. B. Paperless-Consume-Ordner) zusätzlich einbinden:
+      # - /opt/paperless/consume:/opt/paperless/consume
+    tmpfs:
+      - /run/netmover:mode=0700
+
+volumes:
+  netmover-data:

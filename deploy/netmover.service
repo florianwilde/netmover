@@ -1,0 +1,45 @@
+# NetMover als systemd-Dienst direkt auf dem Host (empfohlen).
+# Installation: siehe README, Abschnitt „Installation“.
+[Unit]
+Description=NetMover – NFS/SMB-Mounts und zeitgesteuertes Verschieben
+Documentation=https://git.wilde-server.de/florian.wilde/netmover
+Wants=network-online.target
+After=network-online.target remote-fs-pre.target
+
+[Service]
+Type=exec
+# root ist nötig: mount/umount brauchen CAP_SYS_ADMIN, und Dateien auf beliebigen
+# Freigaben sollen mit den richtigen Eigentümern geschrieben werden (siehe README).
+User=root
+EnvironmentFile=-/etc/netmover/netmover.env
+ExecStart=/opt/netmover/venv/bin/netmover serve
+Restart=on-failure
+RestartSec=5
+# Beim Stoppen werden Mounts bewusst NICHT ausgehängt.
+KillMode=mixed
+TimeoutStopSec=20
+
+# /var/lib/netmover (Datenbank, Schlüssel) und /run/netmover (kurzlebige
+# Credentials-Dateien für mount.cifs) – beide nur für root lesbar.
+StateDirectory=netmover
+StateDirectoryMode=0700
+RuntimeDirectory=netmover
+RuntimeDirectoryMode=0700
+
+# Härtung, soweit mit Mounten vereinbar.
+# Die Optionen unten erzeugen einen eigenen Mount-Namespace für den Dienst.
+# MountFlags=shared sorgt dafür, dass Mounts unter /mnt/netmover trotzdem im
+# System sichtbar sind (prüfen mit: findmnt -R /mnt/netmover).
+MountFlags=shared
+# /usr, /boot und /etc schreibgeschützt; /mnt, /opt, /srv, /var bleiben schreibbar
+# (lokale Ziele wie /opt/paperless/consume funktionieren also).
+ProtectSystem=full
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+RestrictRealtime=yes
+UMask=0022
+
+[Install]
+WantedBy=multi-user.target
