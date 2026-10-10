@@ -14,9 +14,39 @@ Zeiten in Ortszeit (Europe/Berlin).
 | 2026-10-10 | 19:18 | 19:34 | 0:16  | 5       | Weboberfläche und Anmeldung            |
 | 2026-10-10 | 19:40 | 19:50 | 0:10  | 6       | Deployment, README, Release 0.1.0      |
 | 2026-10-10 | 21:36 | 22:05 | 0:29  | –       | Praxistest auf VM, Release 0.1.1       |
-| **Summe**  |       |       | **1:35** |      |                                        |
+| 2026-10-10 | 22:45 | 23:00 | 0:15  | –       | Echtes NAS/Paperless anbinden          |
+| 2026-10-10 | 23:31 | 23:58 | 0:27  | –       | Schlüsselverwaltung, Update-Skript, 0.2.x |
+| **Summe**  |       |       | **2:17** |      |                                        |
 
 ---
+
+## 2026-10-10 · 23:31–23:58 · Schlüsselverwaltung, Update-Skript, Releases 0.2.0/0.2.1
+
+**Erledigt**
+- Schlüsselverwaltung (`keys.py`, Seite „Schlüssel“, Auswahl in SFTP-Anbindungen),
+  Migration 0002 (`credentials.managed`, `mounts.username`).
+- `deploy/update.sh` → `netmover-update`: Tags holen, Sicherung (SQLite-Online-
+  Backup + Schlüssel + env), Checkout, `install.sh`, Healthcheck, Rückweg-Anleitung.
+- VM auf Git-Klon `/opt/netmover/src` umgestellt (Repo ist öffentlich lesbar).
+
+**Zwischenfall beim Update der VM auf 0.2.0**
+- Migration 0002 scheiterte: `FOREIGN KEY constraint failed` bei `DROP TABLE
+  credentials` (Alembic-Batch baut die Tabelle neu; `foreign_keys=ON`, und die
+  Anbindungen verweisen darauf). Danach crashte jeder Neustart an der
+  übriggebliebenen `_alembic_tmp_credentials` (DDL lief ohne Transaktion).
+- `netmover-update` hat den Fehler erkannt und die Rückweg-Befehle genannt.
+  Sicherung zurückgespielt, mit `netmover-update v0.1.1` zurückgestuft – in
+  ~1 Minute wieder lauffähig, NAS-Mount blieb durchgehend eingehängt.
+- Ursache, warum die Tests es nicht fanden: Migrationen wurden nur auf **leeren**
+  Datenbanken getestet. Neu: `tests/test_migrations.py` mit verknüpften Daten und
+  mit Abbruch mitten in der Migration (Datenbank muss unverändert bleiben).
+- Fix: eigene Migrationsverbindung (FK aus, `BEGIN IMMEDIATE`, `transactional_ddl`,
+  `foreign_key_check` vor dem Commit). Vor dem Release an einer Kopie der echten
+  Datenbank auf der VM geprüft.
+- Tag v0.2.0 bleibt (veröffentlicht), im Changelog als „nicht verwenden“ markiert.
+
+**Lehre**
+- Jede künftige Migration bekommt einen Test auf einer befüllten Datenbank.
 
 ## 2026-10-10 · 21:36–22:05 · Praxistest auf der Debian-13-VM, Release 0.1.1
 

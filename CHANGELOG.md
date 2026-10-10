@@ -8,7 +8,23 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 
 ## [Unreleased]
 
+## [0.2.1] – 2026-10-11
+
+### Behoben
+- **Update von 0.1.x auf 0.2.0 scheiterte**: Migration 0002 brach auf einer
+  Datenbank mit Anbindungen ab (`FOREIGN KEY constraint failed` beim Neuaufbau der
+  Tabelle `credentials`). Weil SQLite-Migrationen nicht in einer Transaktion liefen,
+  blieb dabei ein halber Zustand zurück. Migrationen laufen jetzt ohne
+  Fremdschlüsselprüfung, aber mit Integritätsprüfung vor dem Commit und vollständig
+  in einer Transaktion: Ein Abbruch hinterlässt die Datenbank unverändert.
+  Geprüft mit Tests auf verknüpften Daten und an einer Kopie einer echten Datenbank.
+- `netmover-update` zeigt beim Zurückstufen keinen irreführenden Changelog-Auszug mehr.
+
 ## [0.2.0] – 2026-10-11
+
+> ⚠️ **Nicht verwenden** – das Update von 0.1.x scheitert an Migration 0002.
+> Stattdessen 0.2.1 installieren. Wer 0.2.0 schon versucht hat: Die Datenbank aus der
+> Sicherung von `netmover-update` zurückspielen und auf 0.2.1 aktualisieren.
 
 ### Hinzugefügt
 - **Schlüsselverwaltung** (Seite „Schlüssel“): SSH-Schlüssel erzeugen (Ed25519) oder
@@ -149,7 +165,8 @@ Erste Version.
 - Löschen von Zugangsdaten, die noch von einem Mount benutzt werden, trennt den
   Mount nicht mehr stillschweigend ab, sondern wird von der Datenbank abgelehnt.
 
-[Unreleased]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.2.0...HEAD
+[Unreleased]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.2.1...HEAD
+[0.2.1]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.2.0...v0.2.1
 [0.2.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.1.1...v0.2.0
 [0.1.1]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.1.0...v0.1.1
 [0.1.0]: https://git.wilde-server.de/florian.wilde/netmover/releases/tag/v0.1.0
