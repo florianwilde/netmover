@@ -46,6 +46,9 @@ class AppSettings:
     smtp_password_enc: str = ""
     smtp_from: str = ""
     smtp_to: str = ""
+    # Anmeldung: "always" | "trusted" (ohne Anmeldung aus trusted_networks) | "off"
+    auth_mode: str = "always"
+    trusted_networks: str = ""
 
 
 _PREFIX = "app."

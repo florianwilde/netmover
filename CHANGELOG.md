@@ -8,6 +8,27 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 
 ## [Unreleased]
 
+## [0.5.0] – 2026-10-11
+
+### Hinzugefügt
+- **SFTP als Quelle** mit denselben Garantien wie bei SMB/NFS: Stabilitätsprüfung,
+  atomares Schreiben, Löschen der Quelle erst nach vollständiger Übertragung,
+  Kopier-Buchführung, Quarantäne. Verbindungsabbrüche brechen den Lauf als gestörte
+  Anbindung ab. Bei SFTP-Quellen mindestens 2 s Stabilitätsfenster (Zeiten nur
+  sekundengenau).
+- **Gespeicherte Zugangsdaten** für SMB und SFTP-Passwörter (Benutzer, Passwort,
+  Domäne); in Anbindungen auswählbar, ein neues Passwort gilt sofort für alle.
+  Die Seite „Schlüssel“ heißt jetzt **„Zugangsdaten“** (Passwörter + SSH-Schlüssel);
+  `/keys` leitet weiter.
+- **Anmeldung abschaltbar** (*Einstellungen → Anmeldung*, Bestätigung mit Passwort):
+  immer / nicht aus vertrauenswürdigen Netzen / nie (z. B. hinter Reverse Proxy mit
+  eigener Anmeldung). Deutlicher Hinweis in der Kopfzeile; CSRF-Schutz bleibt;
+  `netmover reset-password` schaltet die Anmeldung wieder ein.
+
+### Geändert
+- Mover intern auf eine Quell-Schnittstelle umgestellt (`LocalSource`, `SftpSource`);
+  bestehendes Verhalten unverändert (alle bisherigen Tests gelten weiter).
+
 ## [0.4.0] – 2026-10-11
 
 ### Hinzugefügt
@@ -213,7 +234,8 @@ Erste Version.
 - Löschen von Zugangsdaten, die noch von einem Mount benutzt werden, trennt den
   Mount nicht mehr stillschweigend ab, sondern wird von der Datenbank abgelehnt.
 
-[Unreleased]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.4.0...HEAD
+[Unreleased]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.5.0...HEAD
+[0.5.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.4.0...v0.5.0
 [0.4.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.3.0...v0.4.0
 [0.3.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.2.1...v0.3.0
 [0.2.1]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.2.0...v0.2.1

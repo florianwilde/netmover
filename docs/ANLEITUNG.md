@@ -8,21 +8,21 @@ Diese Anleitung erklärt die Bedienung. Installation, Updates und technische Det
 stehen im [README](../README.md).
 
 **Inhalt:** [Begriffe](#begriffe) · [Erste Anmeldung](#erste-anmeldung) ·
-[Anbindungen](#anbindungen) · [Schlüssel](#schluessel) · [Regeln](#regeln) ·
+[Zugangsdaten](#zugangsdaten) · [Anbindungen](#anbindungen) · [Regeln](#regeln) ·
 [Probelauf](#probelauf) · [Status](#status) · [Wartungsmodus](#wartungsmodus) · [Protokoll](#protokoll) ·
-[Einstellungen](#einstellungen) · [Uptime Kuma](#uptime-kuma) · [Beispiele](#beispiele) · [Häufige Fragen](#fragen)
+[Einstellungen](#einstellungen) · [Anmeldung](#anmeldung) · [Uptime Kuma](#uptime-kuma) · [Beispiele](#beispiele) · [Häufige Fragen](#fragen)
 
 ## Die vier Begriffe {#begriffe}
 
 | Begriff | Was es ist | Beispiel |
 |---|---|---|
 | **Anbindung** | Ein Ort, an den NetMover herankommt: eine SMB-Freigabe, ein NFS-Export oder ein Server per SFTP | „NAS“ = `//10.0.10.6/Scans` |
-| **Schlüssel** | Ein gespeicherter SSH-Schlüssel für SFTP-Anbindungen | „paperless-lxc“ |
+| **Zugangsdaten** | Gespeicherter Benutzer mit Passwort oder SSH-Schlüssel, in mehreren Anbindungen nutzbar | „NAS-Scanner“, „paperless-lxc“ |
 | **Regel** | „Alle N Sekunden aus Anbindung A nach Anbindung B“ – mit Filter, Sicherheitsprüfungen und Verhalten bei gleichen Namen | „Scans → Paperless“ |
 | **Lauf** | Eine Ausführung einer Regel; steht mit allen Dateien im Protokoll | 23:41:07, 3 Dateien verschoben |
 
 Die Reihenfolge beim Einrichten ist immer dieselbe – und so ist auch das Menü
-aufgebaut: **Anbindungen → (Schlüssel) → Regeln → Status und Protokoll beobachten.**
+aufgebaut: **(Zugangsdaten) → Anbindungen → Regeln → Status und Protokoll beobachten.**
 
 ![Statusseite](img/status.png)
 
@@ -66,7 +66,7 @@ Stabilitätsfenster dort mindestens 2 Sekunden betragen.
 | **Server** | IP-Adresse oder Hostname, z. B. `10.0.10.6` |
 | **Freigabe / Pfad** | SMB: Freigabename, optional mit Unterordner (`Scans` oder `Scans/privat`). NFS: Exportpfad (`/volume1/scans`). SFTP: absoluter Ordner auf dem Server (`/opt/paperless_data/consume`). |
 | **Benutzername / Passwort** | Bei SMB leer lassen für Gastzugang. Beim Bearbeiten heißt ein leeres Passwortfeld „unverändert“ – Passwörter werden nie angezeigt. |
-| **Anmeldeart, Schlüssel** (SFTP) | SSH-Schlüssel (gespeichert oder nur für diese Anbindung) oder Passwort, siehe [Schlüssel](#schluessel). |
+| **Zugangsdaten / Anmeldeart** | Gespeicherte Zugangsdaten auswählen oder eigene Angaben nur für diese Anbindung; bei SFTP zusätzlich SSH-Schlüssel oder Passwort, siehe [Zugangsdaten](#zugangsdaten). |
 | **uid, gid, file_mode, dir_mode** (SMB) | Wem die Dateien im eingehängten Ordner gehören. Meist leer lassen. |
 | **Zusatzoptionen** | Für Sonderfälle, z. B. `vers=3.0` oder `nohandlecache`. Nur erlaubte Optionen; Zugangsdaten setzt NetMover selbst. |
 | **Beim Start automatisch einhängen** | Nach einem Neustart des Servers wieder einhängen. Fällt das NAS aus, versucht NetMover es außerdem jede Minute erneut. |
@@ -104,14 +104,28 @@ Es wird nie in ein leeres Verzeichnis geschrieben, nur weil die Freigabe fehlt.
 Solche Regeln **warten** automatisch, bis die Anbindung zurück ist (siehe
 [Status](#status)), und laufen dann von selbst weiter.
 
-## Schlüssel {#schluessel}
+## Zugangsdaten {#zugangsdaten}
 
-*Verbindungen → Schlüssel*
+*Verbindungen → Zugangsdaten*
 
-Für SFTP-Ziele ist ein SSH-Schlüssel sicherer als ein Passwort. Einen Schlüssel kann
-man für mehrere Anbindungen verwenden; den Benutzernamen legt jede Anbindung fest.
+Benutzer und Passwörter für Freigaben sowie SSH-Schlüssel einmal hinterlegen und in
+beliebig vielen Anbindungen auswählen. Passwörter und private Schlüssel liegen
+verschlüsselt in der Datenbank und werden nie angezeigt.
 
-![Schlüssel](img/schluessel.png)
+![Zugangsdaten](img/zugangsdaten.png)
+
+### Passwörter {#zugangsdaten-passwoerter}
+
+Für SMB-Freigaben und SFTP-Server mit Passwort: Name, Benutzer, Passwort und
+optional Domäne. In der Anbindung unter *Zugangsdaten* auswählen statt „eigene
+Angaben“. **Ändern** setzt Benutzer, Domäne oder ein neues Passwort – das gilt sofort
+für alle Anbindungen, die den Eintrag nutzen (praktisch, wenn das NAS-Passwort
+wechselt).
+
+### SSH-Schlüssel {#schluessel}
+
+Für SFTP ist ein Schlüssel sicherer als ein Passwort. Einen Schlüssel kann man für
+mehrere Anbindungen verwenden; den Benutzernamen legt jede Anbindung fest.
 
 **Neuen Schlüssel erzeugen** – Namen eingeben, *Ed25519-Schlüssel erzeugen*. Dann:
 
@@ -119,17 +133,15 @@ man für mehrere Anbindungen verwenden; den Benutzernamen legt jede Anbindung fe
    **authorized_keys-Zeile** kopieren. Sie beginnt mit
    `restrict,command="/usr/lib/openssh/sftp-server"` – damit darf der Schlüssel
    **nur SFTP**, keine Shell.
-2. Auf dem Zielserver an die Datei `~/.ssh/authorized_keys` des Benutzers anhängen
+2. Auf dem Server an die Datei `~/.ssh/authorized_keys` des Benutzers anhängen
    (Ordner `~/.ssh` mit Rechten `700`, Datei `600`, Eigentümer der Benutzer).
 3. In der Anbindung *Anmeldeart: SSH-Schlüssel* und den Schlüssel wählen, **Testen**.
 
 **Vorhandenen Schlüssel importieren** – privaten Schlüssel einfügen (OpenSSH- oder
 PEM-Format; Ed25519, ECDSA oder RSA ab 2048 Bit). Hat er eine Passphrase, diese
-angeben: Sie wird nur zum Entschlüsseln benutzt, der Schlüssel liegt danach
-verschlüsselt in NetMovers Datenbank.
+angeben: Sie wird nur zum Entschlüsseln benutzt.
 
-Private Schlüssel zeigt NetMover nie an. Ein Schlüssel lässt sich nur löschen, wenn
-ihn keine Anbindung mehr nutzt.
+Gespeicherte Zugangsdaten lassen sich nur löschen, wenn sie keine Anbindung mehr nutzt.
 
 ## Regeln {#regeln}
 
@@ -319,6 +331,28 @@ Als Problem gilt: Scheduler steht, eine aktive Anbindung ist im Fehlerzustand, e
 aktive Regel hatte länger als das Dreifache ihres Intervalls keinen Erfolg oder ist
 dreimal hintereinander gescheitert.
 
+### Anmeldung {#anmeldung}
+
+Standardmäßig fragt NetMover immer nach dem Passwort. Unter *Einstellungen →
+Anmeldung* lässt sich das ändern (Bestätigung mit dem aktuellen Passwort):
+
+| Einstellung | Wirkung |
+|---|---|
+| **immer** (empfohlen) | Anmeldung bei jedem Zugriff |
+| **nicht aus vertrauenswürdigen Netzen** | ohne Passwort aus den eingetragenen Netzen, z. B. `10.0.10.0/24`; von überall sonst mit Passwort |
+| **nie** | keine Anmeldung – nur hinter einem Reverse Proxy mit eigener Anmeldung (z. B. Authelia, Authentik) |
+
+Solange ohne Anmeldung gearbeitet wird, steht oben gelb „ohne Anmeldung“. Der Schutz
+gegen untergeschobene Formulare bleibt immer aktiv.
+
+> NetMover läuft als root und kennt die Zugangsdaten deiner Freigaben. Wer die
+> Oberfläche ohne Anmeldung erreicht, kann alles ändern. Läuft ein Reverse Proxy auf
+> demselben Server, kommen alle Anfragen von `127.0.0.1` – dann `127.0.0.1` nicht als
+> vertrauenswürdig eintragen und `NETMOVER_FORWARDED_ALLOW_IPS` setzen.
+
+Zurück zur Anmeldung: dieselbe Einstellung auf „immer“, oder auf dem Server
+`/opt/netmover/venv/bin/netmover reset-password` (setzt auch die Anmeldung zurück).
+
 ### Export und Import {#export-import}
 
 *Konfiguration exportieren* lädt Anbindungen, Regeln und Einstellungen als JSON
@@ -331,8 +365,8 @@ deaktiviert, Zugangsdaten müssen neu eingegeben werden.
 ### Scanner → NAS → Paperless {#beispiel-paperless}
 
 1. Anbindung **NAS** (SMB, Freigabe `Scans`), testen, einhängen.
-2. Schlüssel **paperless-lxc** erzeugen, Zeile in `authorized_keys` im Paperless-LXC
-   eintragen.
+2. Unter *Zugangsdaten* den Schlüssel **paperless-lxc** erzeugen, Zeile in
+   `authorized_keys` im Paperless-LXC eintragen.
 3. Anbindung **Paperless** (SFTP, Pfad `/opt/paperless_data/consume`, Schlüssel
    wählen, Benutzer = der Paperless-Benutzer), testen.
 4. Regel **Scans → Paperless**: Quelle NAS, Filter `*.pdf`, Ziel Paperless,

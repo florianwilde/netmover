@@ -180,7 +180,7 @@ def flash(request: Request, message: str, kind: str = "ok") -> None:
 HELP_ANCHORS = {
     "status": "status",
     "mounts": "anbindungen",
-    "keys": "schluessel",
+    "keys": "zugangsdaten",
     "rules": "regeln",
     "log": "protokoll",
     "settings": "einstellungen",
@@ -200,7 +200,7 @@ class NavState:
 
 
 def _nav_state(request: Request) -> NavState | None:
-    if not auth.is_logged_in(request):
+    if not _authorized(request):
         return None
     state = nm(request)
     health = state.health()
@@ -237,7 +237,9 @@ def render(request: Request, name: str, status_code: int = 200, **ctx: Any) -> H
         {
             "csrf": auth.csrf_token(request),
             "flashes": flashes,
-            "logged_in": auth.is_logged_in(request),
+            "logged_in": _authorized(request),
+            "session_login": auth.is_logged_in(request),
+            "auth_bypass": getattr(request.state, "auth_bypass", None),
             "active": ctx.pop("active", ""),
             **ctx,
         },
@@ -263,11 +265,20 @@ def _form_dict(form: Any) -> dict[str, str]:
 
 async def guard(request: Request) -> None:
     state = nm(request)
+    # Ein Passwort ist immer Pflicht – sonst ließe sich die Anmeldung nie wieder einschalten.
     if not auth.password_is_set(state.session_factory):
         raise auth.LoginRequired(setup=True)
-    if not auth.is_logged_in(request):
+    cfg = load_settings(state.session_factory)
+    bypass = auth.login_bypass(request, cfg.auth_mode, cfg.trusted_networks)
+    if bypass:
+        request.state.auth_bypass = bypass
+    elif not auth.is_logged_in(request):
         raise auth.LoginRequired()
     await auth.check_csrf(request)
+
+
+def _authorized(request: Request) -> bool:
+    return auth.is_logged_in(request) or bool(getattr(request.state, "auth_bypass", None))
 
 
 protected = APIRouter(dependencies=[Depends(guard)])
@@ -349,8 +360,12 @@ async def setup_submit(request: Request) -> Response:
 
 @public.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request) -> Response:
-    if not auth.password_is_set(nm(request).session_factory):
+    state = nm(request)
+    if not auth.password_is_set(state.session_factory):
         return redirect("/setup")
+    cfg = load_settings(state.session_factory)
+    if auth.login_bypass(request, cfg.auth_mode, cfg.trusted_networks):
+        return redirect("/")
     return render(request, "login.html")
 
 
@@ -1061,6 +1076,8 @@ async def settings_page(request: Request) -> Response:
         cfg=cfg,
         errors={},
         monitor_urls=_monitor_urls(request),
+        client_ip=request.client.host if request.client else "",
+        loopback_trusted=auth.includes_loopback(cfg.trusted_networks),
     )
 
 
@@ -1214,6 +1231,43 @@ async def settings_password(request: Request) -> Response:
     auth.login_session(request)
     flash(request, "Passwort geändert.")
     return redirect("/settings")
+
+
+@protected.post("/settings/auth", response_class=HTMLResponse)
+async def settings_auth(request: Request) -> Response:
+    """Anmeldung abschalten bzw. auf vertrauenswürdige Netze beschränken.
+    Nur mit dem aktuellen Passwort."""
+    state = nm(request)
+    form = _form_dict(await request.form())
+    if not await run_in_threadpool(
+        auth.verify_password, state.session_factory, form.get("current", "")
+    ):
+        flash(request, "Aktuelles Passwort falsch – Anmeldung unverändert.", "error")
+        return redirect("/settings#anmeldung")
+    mode = form.get("auth_mode", auth.AUTH_ALWAYS)
+    networks = (form.get("trusted_networks") or "").strip()
+    if mode not in auth.AUTH_MODES:
+        flash(request, "Ungültige Auswahl.", "error")
+        return redirect("/settings#anmeldung")
+    try:
+        nets = auth.parse_networks(networks)
+    except ValueError as exc:
+        flash(request, str(exc), "error")
+        return redirect("/settings#anmeldung")
+    if mode == auth.AUTH_TRUSTED and not nets:
+        flash(request, "Bitte mindestens ein vertrauenswürdiges Netz angeben.", "error")
+        return redirect("/settings#anmeldung")
+    cfg = load_settings(state.session_factory)
+    cfg.auth_mode, cfg.trusted_networks = mode, networks
+    save_settings(state.session_factory, cfg)
+    event(log, "auth.mode_changed", level=30, mode=mode, networks=networks)
+    msgs = {
+        auth.AUTH_ALWAYS: "Anmeldung ist wieder immer erforderlich.",
+        auth.AUTH_TRUSTED: f"Ohne Anmeldung aus: {networks}. Von überall sonst mit Passwort.",
+        auth.AUTH_OFF: "Anmeldung abgeschaltet – NetMover ist ohne Passwort bedienbar.",
+    }
+    flash(request, msgs[mode], "info" if mode == auth.AUTH_ALWAYS else "warn")
+    return redirect("/settings#anmeldung")
 
 
 @protected.get("/settings/export")

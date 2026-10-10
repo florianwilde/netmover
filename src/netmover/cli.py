@@ -64,7 +64,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             row = s.get(Setting, PASSWORD_KEY)
             if row is not None:
                 s.delete(row)
-                s.commit()
+            # Anmeldung wieder einschalten (falls abgeschaltet)
+            mode = s.get(Setting, "app.auth_mode")
+            if mode is not None:
+                mode.value = '"always"'
+            s.commit()
         engine.dispose()
         print("Passwort gelöscht. Dienst neu starten; der Einrichtungscode steht im Log.")
         return 0

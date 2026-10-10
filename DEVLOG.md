@@ -18,9 +18,36 @@ Zeiten in Ortszeit (Europe/Berlin).
 | 2026-10-10 | 23:31 | 23:58 | 0:27  | –       | Schlüsselverwaltung, Update-Skript, 0.2.x |
 | 2026-10-11 | 00:13 | 00:32 | 0:19  | –       | Menü, Anleitung, Roadmap, Uptime Kuma (0.3.0) |
 | 2026-10-11 | 00:31 | 00:50 | 0:19  | –       | Pausieren, Wartungsmodus, E-Mail (0.4.0) |
-| **Summe**  |       |       | **2:55** |      |                                        |
+| 2026-10-11 | 00:54 | 01:16 | 0:22  | –       | SFTP-Quelle, Zugangsdaten, Anmeldung (0.5.0) |
+| **Summe**  |       |       | **3:17** |      |                                        |
 
 ---
+
+## 2026-10-11 · 00:54–01:16 · SFTP-Quelle, Zugangsdaten, Anmeldung abschaltbar (0.5.0)
+
+**Erledigt**
+- `mover/sources.py`: `Source` mit `LocalSource`/`SftpSource`; Engine greift nur noch
+  darüber auf die Quelle zu (Scan, frischer Zustand, Lesen, Löschen, Quarantäne).
+  Ziele bekommen statt `Path` ein „Readable“ (Adapter) – Destinations fast unverändert.
+- `credentials.py` (vorher `keys.py`): gespeicherte Passwörter; Seite „Zugangsdaten“.
+- Anmeldung: Modus immer / vertraute Netze / nie, zentral im `guard`.
+- 26 neue Tests (325 gesamt); alle bisherigen Mover-Tests bestanden den Umbau
+  unverändert (nur ein Monkeypatch-Ziel verschoben).
+
+**Entscheidungen**
+- SFTP-Quelle: Stabilität über Größe + sekundengenaue mtime, Mindestfenster 2 s;
+  Verbindungsabbruch → `ENOTCONN` → Lauf abgebrochen (Anbindung gestört).
+- Gespeicherte Passwörter tragen den Benutzer selbst (anders als Schlüssel, deren
+  Benutzer zur Anbindung gehört).
+- „Passworteingabe deaktivieren“ als Login-Modus umgesetzt, mit Bestätigung durch
+  das Passwort, Warnhinweis und Notausgang über `reset-password`. Ein Passwort bleibt
+  Pflicht (Ersteinrichtung), sonst ließe sich die Anmeldung nie wieder einschalten.
+
+**Stolpersteine**
+- paramiko `prefetch()` braucht `fstat`; der Test-Server konnte es nicht – jetzt
+  kann er es, und die Quelle übergibt die bekannte Größe (spart einen Umlauf).
+- Zwei TestClients mit eigenem Lebenszyklus starteten den Scheduler doppelt →
+  zweiter Client ohne Lebenszyklus auf derselben App.
 
 ## 2026-10-11 · 00:31–00:50 · Pausieren, Wartungsmodus, E-Mail (0.4.0)
 

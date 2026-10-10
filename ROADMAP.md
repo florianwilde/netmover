@@ -6,13 +6,6 @@ stehen mit Version im [CHANGELOG](CHANGELOG.md); Details zu Entscheidungen im
 
 Legende: ✅ erledigt · 🔨 in Arbeit · 📋 geplant · 💡 Idee (noch nicht entschieden)
 
-## In Arbeit (0.5.0)
-
-| Status | Thema | Warum |
-|---|---|---|
-| 🔨 | **SFTP als Quelle**: Scan, Stabilitätsprüfung und Löschen der Quelle über SFTP, mit denselben Garantien wie bei SMB/NFS | Quellen, die nur per SSH erreichbar sind |
-| 🔨 | **Gespeicherte Zugangsdaten** für SMB und SFTP-Passwörter, zusammen mit den SSH-Schlüsseln auf einer Seite „Zugangsdaten“ | Mehrere Freigaben mit demselben NAS-Benutzer an einer Stelle pflegen |
-
 ## Geplant
 
 | Status | Thema | Warum |
@@ -35,6 +28,7 @@ Legende: ✅ erledigt · 🔨 in Arbeit · 📋 geplant · 💡 Idee (noch nicht
 
 | Version | Thema |
 |---|---|
+| 0.5.0 | SFTP als Quelle; gespeicherte Zugangsdaten für SMB/SFTP-Passwörter (Seite „Zugangsdaten“); Anmeldung abschaltbar (vertrauenswürdige Netze / ganz) |
 | 0.4.0 | Automatisch pausieren/fortsetzen bei nicht erreichbaren Anbindungen; Wartungsmodus; E-Mail-Benachrichtigung; eine Meldung pro ausgefallener Anbindung |
 | 0.3.0 | Neues Menü (gruppierte Seitenleiste, Statusampel, Handy-Menü); Anleitung im Repo und als Hilfe-Seite; Roadmap; Uptime Kuma (Einzel-Endpunkte, Push-Monitor) |
 | 0.2.1 | Migrationen in einer Transaktion und ohne Fremdschlüsselfehler auf befüllten Datenbanken |

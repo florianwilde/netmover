@@ -12,6 +12,8 @@
 from __future__ import annotations
 
 import hmac
+import ipaddress
+import re
 import secrets
 import threading
 import time
@@ -30,6 +32,54 @@ MIN_PASSWORD_LENGTH = 10
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 _hasher = PasswordHasher()
+
+
+AUTH_ALWAYS, AUTH_TRUSTED, AUTH_OFF = "always", "trusted", "off"
+AUTH_MODES = (AUTH_ALWAYS, AUTH_TRUSTED, AUTH_OFF)
+
+
+def parse_networks(raw: str) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    """„10.0.10.0/24, 192.168.1.5“ → Netze; ``ValueError`` mit verständlicher Meldung."""
+    nets = []
+    for part in re.split(r"[,;\s]+", raw.strip()):
+        if not part:
+            continue
+        try:
+            nets.append(ipaddress.ip_network(part, strict=False))
+        except ValueError:
+            raise ValueError(f"„{part}“ ist kein gültiges Netz (z. B. 10.0.10.0/24)") from None
+    return nets
+
+
+def login_bypass(request: Request, mode: str, trusted: str) -> str | None:
+    """Grund, warum keine Anmeldung nötig ist (``"off"``/``"trusted"``), sonst ``None``.
+
+    Hinter einem Reverse Proxy ist die Client-Adresse nur dann echt, wenn
+    ``NETMOVER_FORWARDED_ALLOW_IPS`` den Proxy kennt – sonst sähe jede Anfrage aus,
+    als käme sie vom Proxy selbst."""
+    if mode == AUTH_OFF:
+        return AUTH_OFF
+    if mode != AUTH_TRUSTED or request.client is None:
+        return None
+    try:
+        addr = ipaddress.ip_address(request.client.host)
+    except ValueError:
+        return None
+    try:
+        nets = parse_networks(trusted)
+    except ValueError:
+        return None
+    return AUTH_TRUSTED if any(addr in n for n in nets) else None
+
+
+def includes_loopback(raw: str) -> bool:
+    try:
+        nets = parse_networks(raw)
+    except ValueError:
+        return False
+    return any(
+        ipaddress.ip_address("127.0.0.1") in n or ipaddress.ip_address("::1") in n for n in nets
+    )
 
 
 class LoginRequired(Exception):

@@ -23,6 +23,7 @@
   {% if nav %}
   <a class="health {{ 'ok' if nav.healthy else 'bad' }}" href="/" title="Gesundheitszustand">
     <span class="dot"></span>{{ 'Alles in Ordnung' if nav.healthy else (nav.problems ~ (' Problem' if nav.problems == 1 else ' Probleme')) }}</a>
+  {% if auth_bypass %}<a class="health warn" href="/settings#anmeldung" title="Ohne Passwort bedienbar">{{ 'ohne Anmeldung' if auth_bypass == 'off' else 'ohne Anmeldung (vertrautes Netz)' }}</a>{% endif %}
   {% if nav.maintenance %}<a class="health warn" href="/" title="Geplante Läufe sind pausiert"><span class="dot"></span>Wartungsmodus</a>{% endif %}
   {% endif %}
   <span class="spacer"></span>
@@ -49,10 +50,12 @@
     {{ item('help', '/help', 'Hilfe') }}
   </div>
   <div class="nav-foot">
+    {% if session_login %}
     <form method="post" action="/logout">
       <input type="hidden" name="csrf_token" value="{{ csrf }}">
       <button class="nav-button">{{ icon('logout') }}<span>Abmelden</span></button>
     </form>
+    {% endif %}
     <div class="version">NetMover {{ version }}</div>
   </div>
 </nav>
