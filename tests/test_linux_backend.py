@@ -110,6 +110,12 @@ def test_is_mounted_reads_mountinfo(tmp_path: Path) -> None:
         ),
         ("nfs4", "mount.nfs4: access denied by server while mounting nas:/x", "NFS-Berechtigungen"),
         ("cifs", "mount error(112): Host is down", "nicht erreichbar"),
+        # Praxisfall: Synology mit „Maximales SMB-Protokoll: SMB2“
+        (
+            "cifs",
+            "mount error(95): Operation not supported\nRefer to the mount.cifs(8) manual page",
+            "vers=2.0",
+        ),
         ("cifs", "mount: only root can do that", "CAP_SYS_ADMIN"),
     ],
 )

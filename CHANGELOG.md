@@ -8,6 +8,10 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 
 ## [Unreleased]
 
+### Geändert
+- Klartext-Hinweis bei `mount error(95)` (keine gemeinsame SMB-Version) mit
+  Synology-Einstellung; aufgefallen bei der Anbindung des echten NAS.
+
 ## [0.1.1] – 2026-10-10
 
 Korrekturen aus dem ersten Praxistest auf einer Debian-13-VM mit echten

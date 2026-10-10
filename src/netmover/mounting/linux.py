@@ -58,6 +58,13 @@ def explain_mount_error(fstype: str, message: str) -> str:
     if "helper program" in low or "unknown filesystem type" in low:
         pkg = "cifs-utils" if fstype == "cifs" else "nfs-common"
         hint = f"Das Paket „{pkg}“ fehlt: apt install {pkg}"
+    elif fstype == "cifs" and ("error(95)" in low or "operation not supported" in low):
+        hint = (
+            "Server und Client finden keine gemeinsame SMB-Version. Am besten am NAS "
+            "SMB2/SMB3 erlauben (Synology: Systemsteuerung → Dateidienste → SMB → "
+            "Erweiterte Einstellungen → Maximales SMB-Protokoll: SMB3). Alternativ "
+            "Zusatzoption vers=2.0 – vers=1.0 nur im Notfall, SMB1 ist unsicher."
+        )
     elif "permission denied" in low and fstype == "cifs":
         hint = "Benutzername/Passwort falsch oder der Benutzer hat keine Rechte auf die Freigabe."
     elif "permission denied" in low or "access denied by server" in low:

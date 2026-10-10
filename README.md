@@ -327,6 +327,7 @@ findmnt -R /mnt/netmover                     # was ist wirklich eingehängt?
 |---|---|
 | `mount error(13): Permission denied` (CIFS) | Benutzer oder Passwort falsch, oder keine Rechte auf die Freigabe. |
 | `mount error(2): No such file or directory` | Freigabename falsch geschrieben (Groß/klein!). |
+| `mount error(95): Operation not supported` | Keine gemeinsame SMB-Version (im Kernel-Log: „Dialect not supported by server“). Am NAS das maximale SMB-Protokoll auf SMB3 stellen oder Zusatzoption `vers=2.0`. |
 | `mount error(112): Host is down` | NAS nicht erreichbar, oder SMB1 erwartet: `vers=3.0` bzw. `vers=2.1` probieren. |
 | `… helper program` / `unknown filesystem type` | `apt install cifs-utils nfs-common` |
 | `Operation not permitted` / `only root can do that` | Kein `CAP_SYS_ADMIN`: unprivilegierter LXC oder Docker ohne `cap_add`. |
