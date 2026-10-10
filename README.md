@@ -47,15 +47,36 @@ heißt deshalb immer **kopieren, prüfen, dann erst die Quelle löschen**:
 
 ```bash
 apt install -y git
-git clone https://git.wilde-server.de/florian.wilde/netmover.git
-cd netmover
-sudo ./deploy/install.sh
+git clone https://git.wilde-server.de/florian.wilde/netmover.git /opt/netmover/src
+cd /opt/netmover/src && git checkout "$(git tag -l 'v*' --sort=-v:refname | head -n 1)"
+./deploy/install.sh
 ```
 
-Das Skript installiert `python3-venv`, `cifs-utils` und `nfs-common` und richtet
-NetMover in `/opt/netmover/venv` ein. Danach installiert es
-[`deploy/netmover.service`](deploy/netmover.service) und startet den Dienst.
-Ein Update ist derselbe Aufruf nach einem `git pull`.
+Das Skript installiert `python3-venv`, `cifs-utils`, `nfs-common` und `git`. Es
+richtet NetMover in `/opt/netmover/venv` ein, installiert
+[`deploy/netmover.service`](deploy/netmover.service) und das Update-Skript
+`netmover-update` und startet den Dienst.
+
+### Update
+
+```bash
+netmover-update            # auf die neueste Version
+netmover-update --list     # verfügbare Versionen
+netmover-update v0.2.0     # bestimmte Version
+```
+
+`netmover-update` geht so vor:
+1. Neue Versions-Tags aus Gitea holen und die Änderungen laut Changelog anzeigen.
+2. **Datenbank, `secret.key` und Einstellungen nach `/var/backups/netmover/` sichern**
+   (die letzten 10 bleiben).
+3. Die Version auschecken, installieren und den Dienst neu starten. Neue
+   Datenbank-Migrationen laufen dabei automatisch.
+4. `/healthz` prüfen.
+
+Die Mounts bleiben die ganze Zeit eingehängt. Geht etwas schief, nennt das Skript
+die Befehle, um die Sicherung zurückzuspielen und zur vorherigen Version zu wechseln.
+**Zurückstufen** auf eine ältere Version geht nur mit der Datenbank-Sicherung von
+vor dem Update, wenn das Update eine Migration enthielt; das Skript fragt deshalb nach.
 
 Was wo liegt:
 
@@ -149,11 +170,18 @@ Lege in NetMover die *Anbindung → Neue Anbindung* an:
 | Typ | SFTP (nur Ziel) |
 | Server / SSH-Port | IP des LXC / `22` |
 | Freigabe / Pfad | `/opt/paperless_data/consume` |
-| Anmeldeart | SSH-Schlüssel (NetMover erzeugt ihn) |
+| Anmeldeart | SSH-Schlüssel |
+| Schlüssel | einen gespeicherten Schlüssel wählen (siehe unten) oder „neuer Schlüssel nur für diese Anbindung“ |
 | Benutzername | `paperless` (der Benutzer, unter dem Paperless läuft) |
 
-Nach dem Speichern zeigt NetMover den **öffentlichen Schlüssel**. Trage ihn im LXC
-ein, und zwar so, dass der Schlüssel **nur SFTP** darf:
+**Schlüsselverwaltung:** Unter *Schlüssel* erzeugst du Ed25519-Schlüssel oder
+importierst vorhandene (Ed25519, ECDSA, RSA ≥ 2048 Bit; OpenSSH- oder PEM-Format,
+auch mit Passphrase). Ein Schlüssel kann von mehreren Anbindungen genutzt werden; den
+Benutzernamen legt jede Anbindung selbst fest. Private Schlüssel liegen verschlüsselt
+in der Datenbank und werden nie angezeigt. Die Seite zeigt den Fingerabdruck und eine
+fertige `authorized_keys`-Zeile zum Kopieren.
+
+Trage den öffentlichen Schlüssel im LXC so ein, dass er **nur SFTP** darf:
 
 ```bash
 # im Paperless-LXC als root
@@ -389,7 +417,7 @@ Aufbau:
 | `mounting/` | `MountBackend` (Linux/Fake), Mount-Verwaltung, Test, Wiederherstellung, SFTP |
 | `mover/` | Scan, Stabilität, atomares Schreiben, Kollisionen, Buchführung, Regellauf |
 | `runs.py`, `scheduler.py`, `health.py`, `notify.py` | Protokoll, Zeitsteuerung, Gesundheit, Webhook |
-| `admin.py`, `transfer.py`, `web/` | Formulare, Export/Import, Oberfläche |
+| `admin.py`, `keys.py`, `transfer.py`, `web/` | Formulare, Schlüsselverwaltung, Export/Import, Oberfläche |
 
 Die gesamte Mover-Logik ist mit dem `FakeMountBackend` ohne root testbar. SFTP
 wird gegen einen echten SFTP-Server im Testprozess getestet.

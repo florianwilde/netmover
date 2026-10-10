@@ -8,11 +8,26 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 
 ## [Unreleased]
 
+## [0.2.0] – 2026-10-11
+
+### Hinzugefügt
+- **Schlüsselverwaltung** (Seite „Schlüssel“): SSH-Schlüssel erzeugen (Ed25519) oder
+  importieren (Ed25519, ECDSA, RSA ≥ 2048 Bit; OpenSSH/PEM, auch mit Passphrase),
+  Fingerabdruck und `authorized_keys`-Zeile mit SFTP-Beschränkung zum Kopieren,
+  Umbenennen, Löschen nur wenn unbenutzt. Private Schlüssel werden nie angezeigt.
+- SFTP-Anbindungen können einen gespeicherten Schlüssel auswählen; der Benutzername
+  gehört zur Anbindung (Migration 0002: `credentials.managed`, `mounts.username`).
+- **`netmover-update`**: Update aus dem Git-Repo mit Sicherung von Datenbank,
+  Schlüsseln und Einstellungen, Changelog-Auszug, Neustart und Healthcheck;
+  Versionswahl, Warnung beim Zurückstufen.
+- Installation als Git-Klon unter `/opt/netmover/src`; `install.sh` installiert
+  `git` und das Update-Skript.
+
 ### Geändert
-- SFTP-Anbindungen gelten nach erfolgreichem Test als „erreichbar“ (vorher bis
-  zum ersten Regellauf „nicht geprüft“).
 - Klartext-Hinweis bei `mount error(95)` (keine gemeinsame SMB-Version) mit
   Synology-Einstellung; aufgefallen bei der Anbindung des echten NAS.
+- SFTP-Anbindungen gelten nach erfolgreichem Test als „erreichbar“ (vorher bis
+  zum ersten Regellauf „nicht geprüft“).
 
 ## [0.1.1] – 2026-10-10
 
@@ -134,6 +149,7 @@ Erste Version.
 - Löschen von Zugangsdaten, die noch von einem Mount benutzt werden, trennt den
   Mount nicht mehr stillschweigend ab, sondern wird von der Datenbank abgelehnt.
 
-[Unreleased]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.1.1...HEAD
+[Unreleased]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.2.0...HEAD
+[0.2.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.1.1...v0.2.0
 [0.1.1]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.1.0...v0.1.1
 [0.1.0]: https://git.wilde-server.de/florian.wilde/netmover/releases/tag/v0.1.0
