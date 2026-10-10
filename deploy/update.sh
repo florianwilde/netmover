@@ -66,11 +66,13 @@ if [ "$NEWEST" = "$CURRENT" ] && [ "$CURRENT" != "$TARGET" ]; then
     [ "$answer" = "j" ] || [ "$answer" = "J" ] || exit 1
 fi
 
+if [ "$NEWEST" = "$TARGET" ]; then
 echo
 echo "==> Änderungen laut Changelog"
 git show "$TARGET:CHANGELOG.md" | awk -v cur="${CURRENT#v}" '
     /^## \[/ { if (index($0, "[" cur "]")) exit; show = ($0 !~ /Unreleased/) }
     show' | head -n 60
+fi
 
 echo
 echo "==> Sicherung"

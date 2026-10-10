@@ -33,6 +33,35 @@ def make_engine(url: str) -> Engine:
     return engine
 
 
+def make_migration_engine(url: str) -> Engine:
+    """Verbindung nur für Migrationen.
+
+    * Fremdschlüssel AUS: SQLite baut Tabellen bei Änderungen neu auf (Alembic
+      „batch mode“) und löscht dabei die alte Tabelle. Mit eingeschalteter Prüfung
+      scheitert das, sobald andere Tabellen darauf verweisen (Praxisbefund beim
+      Update auf 0.2.0). Die Integrität prüft ``PRAGMA foreign_key_check`` danach.
+    * Echte Transaktion: pysqlite eigene Transaktionssteuerung abnehmen und selbst
+      ``BEGIN`` senden. So wird eine abgebrochene Migration vollständig
+      zurückgerollt, statt einen halben Zustand zu hinterlassen.
+    """
+    engine = create_engine(url, connect_args={"check_same_thread": False})
+    if url.startswith("sqlite"):
+
+        def on_connect(dbapi_conn: Any, _record: Any) -> None:
+            dbapi_conn.isolation_level = None
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA foreign_keys=OFF")  # außerhalb einer Transaktion setzen
+            cur.execute("PRAGMA busy_timeout=5000")
+            cur.close()
+
+        def on_begin(conn: Any) -> None:
+            conn.exec_driver_sql("BEGIN IMMEDIATE")
+
+        event.listen(engine, "connect", on_connect)
+        event.listen(engine, "begin", on_begin)
+    return engine
+
+
 def make_session_factory(engine: Engine) -> sessionmaker[Session]:
     return sessionmaker(bind=engine, expire_on_commit=False)
 
