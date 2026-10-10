@@ -13,6 +13,7 @@ Reihenfolge pro Lauf:
 
 from __future__ import annotations
 
+import dataclasses
 import errno
 import os
 import stat
@@ -39,7 +40,7 @@ from netmover.mover.destinations import (
 )
 from netmover.mover.ledger import FailureInfo, Ledger
 from netmover.mover.naming import collision_candidates
-from netmover.mover.scan import Candidate, FileState, Matcher, current_state, scan
+from netmover.mover.scan import BUSY, Candidate, FileState, Matcher, current_state, scan
 from netmover.timeouts import Cancelled, CancelToken
 
 log = get_logger(__name__)
@@ -222,26 +223,32 @@ class Engine:
             else:
                 pending.append(c)
 
-        # Stabilität (Fallstrick 1): zweite Messung nach dem Stabilitätsfenster.
+        # Stabilität (Fallstrick 1): zwei frische Messungen (öffnen + fstat, nicht
+        # der Verzeichnis-Cache) im Abstand des Stabilitätsfensters.
+        first: dict[str, FileState | None] = {c.relpath: current_state(c.path) for c in pending}
         if pending and rule.stability_seconds > 0:
             self._sleep(rule.stability_seconds)
             token.check()
         stable: list[Candidate] = []
         for c in pending:
-            st = current_state(c.path)
-            if st is None:
+            before, st = first[c.relpath], current_state(c.path)
+            if before is None or st is None:
                 continue  # inzwischen verschwunden – nichts zu tun
-            if st != c.state:
+            if st != before or st == BUSY:
                 result.add(
                     ItemResult(
                         c.relpath,
                         ItemStatus.SKIPPED,
-                        size=st.size,
-                        message="wird noch geschrieben (Größe/Zeit geändert)",
+                        size=max(st.size, 0),
+                        message="wird noch geschrieben (Größe/Zeit geändert)"
+                        if st != BUSY
+                        else "Datei ist gerade in Benutzung",
                     )
                 )
                 continue
-            stable.append(c)
+            # ab hier gilt der frisch gemessene Zustand (für Prüfung vor dem Umbenennen
+            # und für die Kopier-Buchführung)
+            stable.append(dataclasses.replace(c, state=st))
 
         failures = self.ledger.failures(rule.id)
         for c in stable:

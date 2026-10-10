@@ -730,3 +730,52 @@ def test_final_step_is_a_real_rename_when_possible(
     assert (dst / "a.pdf").read_text() == "alt" and (dst / "a-1.pdf").read_text() == "neu"
     assert bool(links) is not supported
     assert [p.name for p in dst.iterdir() if p.name.endswith(".part")] == []
+
+
+# -- Praxisbefund: veralteter Attribut-Cache (CIFS/NFS) -------------------------------------
+
+
+def test_stability_uses_fresh_attributes_not_stat_cache(
+    engine: Engine,
+    rule_id: int,
+    src: Path,
+    dst: Path,
+    hooks: list[Callable[[], None]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Auf dem Testhost lieferte CIFS per stat() sekundenlang eine veraltete Größe,
+    während die Datei wuchs. Simuliert: os.stat liefert für die Datei immer den
+    alten Stand (Cache), nur öffnen + fstat sieht die Wahrheit."""
+    growing = write(src / "langsam.pdf", "a" * 10)
+    stale = os.stat(growing)
+    real_stat = os.stat
+
+    def cached_stat(path: object, *a: object, **kw: object) -> os.stat_result:
+        if str(path) == str(growing):
+            return stale
+        return real_stat(path, *a, **kw)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "stat", cached_stat)
+    hooks.append(lambda: growing.write_text("a" * 20))
+    result = run(engine, snap(rule_id), src, dst)
+    assert statuses(result) == {"langsam.pdf": ItemStatus.SKIPPED}
+    assert "wird noch geschrieben" in (result.items[0].message or "")
+    assert growing.exists() and not (dst / "langsam.pdf").exists()
+
+
+def test_locked_file_counts_as_in_use(
+    engine: Engine, rule_id: int, src: Path, dst: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    f = write(src / "gesperrt.pdf")
+    real_open = os.open
+
+    def locked(path: object, flags: int, *a: object, **kw: object) -> int:
+        if str(path) == str(f):
+            raise PermissionError(errno.EACCES, "Permission denied", str(path))
+        return real_open(path, flags, *a, **kw)  # type: ignore[arg-type]
+
+    monkeypatch.setattr("netmover.mover.scan.os.open", locked)
+    result = run(engine, snap(rule_id), src, dst)
+    assert statuses(result) == {"gesperrt.pdf": ItemStatus.SKIPPED}
+    assert result.items[0].message == "Datei ist gerade in Benutzung"
+    assert f.exists()
