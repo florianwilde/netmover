@@ -9,6 +9,8 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 ## [Unreleased]
 
 ### Geändert
+- SFTP-Anbindungen gelten nach erfolgreichem Test als „erreichbar“ (vorher bis
+  zum ersten Regellauf „nicht geprüft“).
 - Klartext-Hinweis bei `mount error(95)` (keine gemeinsame SMB-Version) mit
   Synology-Einstellung; aufgefallen bei der Anbindung des echten NAS.
 

@@ -507,6 +507,11 @@ class MountManager:
             if cfg.type is MountType.SFTP and m.host_key is None and report.can_read:
                 m.host_key = report.host_key
                 event(log, "sftp.host_key_pinned", mount=m.name, fp=report.host_key_fingerprint)
+            # SFTP hat keinen Mount-Zustand – ein erfolgreicher Test heißt „erreichbar“.
+            if cfg.type is MountType.SFTP and report.ok and m.state is not MountState.MOUNTED:
+                m.state = MountState.MOUNTED
+                m.state_since = utcnow()
+                m.last_error = None
 
     # -- Lebenszeichen und Wiederherstellung --------------------------------------
 

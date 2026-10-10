@@ -147,6 +147,8 @@ def test_manager_pins_host_key_and_checks_alive(
     with session_factory() as s:
         mm = s.get(Mount, mid)
         assert mm is not None and mm.host_key == server.host_key_string
+        # Praxisbefund: nach erfolgreichem Test „erreichbar“ statt „nicht geprüft“
+        assert mm.state is MountState.MOUNTED
 
     assert manager.check_alive(mid) is None
     with session_factory() as s:
