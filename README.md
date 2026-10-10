@@ -8,6 +8,15 @@ unabhängig voneinander per SMB, NFS, lokal oder (nur als Ziel) per SFTP angebun
 Typischer Einsatz: Ein Synology-NAS nimmt Scans entgegen, NetMover schiebt sie alle
 30 Sekunden in den Eingangsordner von Paperless-ngx.
 
+![Statusseite](docs/img/status.png)
+
+| Dokument | Inhalt |
+|---|---|
+| **[Anleitung](docs/ANLEITUNG.md)** | Bedienung: Anbindungen, Schlüssel, Regeln, Status, Protokoll, Uptime Kuma, Beispiele, Fragen – auch in der Oberfläche unter *Hilfe* |
+| **[Roadmap](ROADMAP.md)** | Was in Arbeit und geplant ist |
+| [Changelog](CHANGELOG.md) | Änderungen je Version |
+| dieses README | Installation, Update, Betrieb, Fehlersuche, Sicherheit |
+
 - [Wie NetMover Datenverlust verhindert](#wie-netmover-datenverlust-verhindert)
 - [Installation](#installation) · [Erster Start](#erster-start)
 - [Beispiel: Synology → Paperless](#beispiel-synology--paperless)
@@ -340,8 +349,11 @@ Webhook-Vorlagen (Platzhalter `$event $title $message $rule $time $host`):
 | Gotify | `https://gotify.lan/message?token=…` | `application/json` | `{"title": "$title", "message": "$message", "priority": 5}` |
 | eigener Empfänger | beliebig | `application/json` | Standardvorlage |
 
-`GET /healthz` liefert `200` oder `503` mit der Liste der Probleme (ohne Anmeldung),
-z. B. für Uptime Kuma.
+**Überwachung:** `GET /healthz` liefert ohne Anmeldung `200` oder `503` mit allen
+Einzelprüfungen; `/healthz/mount/<name>` und `/healthz/rule/<nummer>` prüfen eine
+einzelne Anbindung oder Regel. Alternativ meldet NetMover jede Minute an einen
+Uptime-Kuma-Push-Monitor (*Einstellungen → Überwachung*). Details:
+[Anleitung → Uptime Kuma](docs/ANLEITUNG.md#uptime-kuma).
 
 ## Fehlersuche
 
@@ -418,6 +430,8 @@ Aufbau:
 | `mover/` | Scan, Stabilität, atomares Schreiben, Kollisionen, Buchführung, Regellauf |
 | `runs.py`, `scheduler.py`, `health.py`, `notify.py` | Protokoll, Zeitsteuerung, Gesundheit, Webhook |
 | `admin.py`, `keys.py`, `transfer.py`, `web/` | Formulare, Schlüsselverwaltung, Export/Import, Oberfläche |
+| `health.py`, `kuma.py` | Gesundheitsprüfung, Uptime-Kuma-Push |
+| `docs/` | Anleitung und Bilder; wird als Hilfe-Seite mit ausgeliefert |
 
 Die gesamte Mover-Logik ist mit dem `FakeMountBackend` ohne root testbar. SFTP
 wird gegen einen echten SFTP-Server im Testprozess getestet.

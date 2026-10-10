@@ -12,15 +12,19 @@ import asyncio
 import dataclasses
 import json
 import math
+import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import lru_cache
 from importlib.resources import files
+from pathlib import Path
 from typing import Any
 
+import markdown
 from fastapi import APIRouter, Depends, FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, or_, select
@@ -46,9 +50,11 @@ from netmover.app_state import NetMover
 from netmover.config import Settings, get_settings
 from netmover.db import session_scope
 from netmover.keys import delete_key, generate_key, import_key, list_keys, rename_key
+from netmover.kuma import push as kuma_push
 from netmover.logging_setup import event, get_logger
 from netmover.models import (
     CollisionPolicy,
+    Credential,
     CredentialKind,
     Mount,
     MountState,
@@ -159,8 +165,59 @@ def flash(request: Request, message: str, kind: str = "ok") -> None:
     request.session["flash"] = [*request.session.get("flash", []), [kind, message]]
 
 
+# Hilfe-Abschnitt passend zur Seite (Link „Hilfe zu dieser Seite“)
+HELP_ANCHORS = {
+    "status": "status",
+    "mounts": "anbindungen",
+    "keys": "schluessel",
+    "rules": "regeln",
+    "log": "protokoll",
+    "settings": "einstellungen",
+}
+
+
+@dataclass
+class NavState:
+    healthy: bool
+    problems: int
+    mounts: int
+    mounts_bad: int
+    keys: int
+    rules: int
+    rules_active: int
+
+
+def _nav_state(request: Request) -> NavState | None:
+    if not auth.is_logged_in(request):
+        return None
+    state = nm(request)
+    health = state.health()
+    with state.session_factory() as s:
+        mounts = s.execute(select(Mount.state, Mount.enabled)).all()
+        rules = s.execute(select(Rule.enabled)).all()
+        keys = s.scalar(
+            select(func.count()).select_from(Credential).where(Credential.managed.is_(True))
+        )
+    return NavState(
+        healthy=health.ok,
+        problems=len(health.problems),
+        mounts=len(mounts),
+        mounts_bad=sum(
+            1 for st, en in mounts if en and st in (MountState.ERROR, MountState.DEGRADED)
+        ),
+        keys=keys or 0,
+        rules=len(rules),
+        rules_active=sum(1 for (en,) in rules if en),
+    )
+
+
 def render(request: Request, name: str, status_code: int = 200, **ctx: Any) -> HTMLResponse:
-    flashes = request.session.pop("flash", []) if not name.startswith("partials/") else []
+    partial = name.startswith("partials/")
+    flashes = request.session.pop("flash", []) if not partial else []
+    active = ctx.get("active", "")
+    if not partial:
+        ctx.setdefault("nav", _nav_state(request))
+        ctx.setdefault("help_anchor", HELP_ANCHORS.get(active))
     return TEMPLATES.TemplateResponse(
         request,
         name,
@@ -209,9 +266,43 @@ public = APIRouter()
 
 @public.get("/healthz")
 async def healthz(request: Request) -> JSONResponse:
-    health = await run_in_threadpool(nm(request).health)
-    body = {"status": "ok" if health.ok else "error", "problems": health.problems}
+    """Für Uptime Kuma & Co.: 200 = alles in Ordnung, 503 = mindestens ein Problem.
+    Ohne Anmeldung erreichbar; enthält Namen und Fehlermeldungen, keine Geheimnisse."""
+    state = nm(request)
+    health = await run_in_threadpool(state.health)
+    beat = state.scheduler.last_heartbeat
+    body = {
+        "status": "ok" if health.ok else "error",
+        "version": __version__,
+        "problems": health.problems,
+        "scheduler": {
+            "running": state.scheduler.running,
+            "last_heartbeat": beat.isoformat() if beat else None,
+        },
+        "checks": [c.as_dict() for c in health.checks],
+    }
     return JSONResponse(body, status_code=200 if health.ok else 503)
+
+
+async def _single_check(request: Request, kind: str, **key: Any) -> JSONResponse:
+    health = await run_in_threadpool(nm(request).health)
+    check = health.find(kind, **key)
+    if check is None:
+        return JSONResponse({"status": "unknown", "message": "nicht gefunden"}, status_code=404)
+    body = {"status": "ok" if check.ok else "error", "name": check.name, "message": check.message}
+    return JSONResponse(body, status_code=200 if check.ok else 503)
+
+
+@public.get("/healthz/mount/{slug}")
+async def healthz_mount(request: Request, slug: str) -> JSONResponse:
+    """Eigener Kuma-Monitor pro Anbindung."""
+    return await _single_check(request, "mount", slug=slug)
+
+
+@public.get("/healthz/rule/{rule_id}")
+async def healthz_rule(request: Request, rule_id: int) -> JSONResponse:
+    """Eigener Kuma-Monitor pro Regel."""
+    return await _single_check(request, "rule", id=rule_id)
 
 
 @public.get("/setup", response_class=HTMLResponse)
@@ -425,8 +516,7 @@ def _key_options(request: Request) -> list[tuple[str, str]]:
     with nm(request).session_factory() as s:
         keys = list_keys(s)
     return [("new", "neuer Schlüssel nur für diese Anbindung")] + [
-        (str(k.id), f"{k.name} ({k.key_type.removeprefix('ssh-')}, {k.fingerprint[7:19]}…)")
-        for k in keys
+        (str(k.id), f"{k.name} ({k.key_type.removeprefix('ssh-')})") for k in keys
     ]
 
 
@@ -817,13 +907,73 @@ async def log_items(request: Request, run_id: int) -> Response:
         return render(request, "partials/run_items.html", items=items, run=run)
 
 
+# -- Hilfe --------------------------------------------------------------------------------------
+
+REPO_URL = "https://git.wilde-server.de/florian.wilde/netmover"
+_IMG_NAME = re.compile(r"^[a-z0-9_-]+\.png$")
+
+
+def _help_dir() -> Path:
+    """Im installierten Paket mitgeliefert (siehe pyproject), sonst docs/ im Repo."""
+    packaged = Path(str(files("netmover.web") / "help"))
+    if (packaged / "ANLEITUNG.md").is_file():
+        return packaged
+    return Path(__file__).resolve().parents[3] / "docs"
+
+
+@lru_cache(maxsize=1)
+def _help_html() -> str:
+    text = (_help_dir() / "ANLEITUNG.md").read_text(encoding="utf-8")
+    html = markdown.markdown(text, extensions=["tables", "attr_list", "fenced_code"])
+    html = html.replace('src="img/', 'src="/help/img/')
+    return html.replace(
+        'href="../README.md"', f'href="{REPO_URL}#readme" target="_blank" rel="noopener"'
+    )
+
+
+@protected.get("/help", response_class=HTMLResponse)
+async def help_page(request: Request) -> Response:
+    return render(request, "help.html", active="help", content=_help_html())
+
+
+@protected.get("/help/img/{name}")
+async def help_image(request: Request, name: str) -> Response:
+    path = _help_dir() / "img" / name
+    if not _IMG_NAME.fullmatch(name) or not path.is_file():
+        return Response(status_code=404)
+    return FileResponse(path, media_type="image/png")
+
+
 # -- Einstellungen ------------------------------------------------------------------------------
+
+
+def _monitor_urls(request: Request) -> list[tuple[str, str]]:
+    """Adressen für Uptime-Kuma-HTTP-Monitore (Gesamtzustand und Einzel-Endpunkte)."""
+    base = str(request.base_url).rstrip("/")
+    urls = [("Gesamtzustand", f"{base}/healthz")]
+    with nm(request).session_factory() as s:
+        urls += [
+            (f"Anbindung „{n}“", f"{base}/healthz/mount/{slug}")
+            for n, slug in s.execute(select(Mount.name, Mount.slug).order_by(Mount.name))
+        ]
+        urls += [
+            (f"Regel „{n}“", f"{base}/healthz/rule/{rid}")
+            for rid, n in s.execute(select(Rule.id, Rule.name).order_by(Rule.name))
+        ]
+    return urls
 
 
 @protected.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request) -> Response:
     cfg = load_settings(nm(request).session_factory)
-    return render(request, "settings.html", active="settings", cfg=cfg, errors={})
+    return render(
+        request,
+        "settings.html",
+        active="settings",
+        cfg=cfg,
+        errors={},
+        monitor_urls=_monitor_urls(request),
+    )
 
 
 @protected.post("/settings", response_class=HTMLResponse)
@@ -850,6 +1000,11 @@ async def settings_save(request: Request) -> Response:
         if url and not url.startswith(("http://", "https://")):
             errors["webhook_url"] = "URL muss mit http:// oder https:// beginnen."
         cfg.webhook_url = url
+    kuma = (form.get("kuma_push_url") or "").strip()
+    if kuma != auth_mask(cfg.kuma_push_url):
+        if kuma and not kuma.startswith(("http://", "https://")):
+            errors["kuma_push_url"] = "URL muss mit http:// oder https:// beginnen."
+        cfg.kuma_push_url = kuma
     cfg.notify_recovery = form.get("notify_recovery") == "on"
     cfg.webhook_template = form.get("webhook_template") or cfg.webhook_template
     cfg.webhook_content_type = (form.get("webhook_content_type") or "application/json").strip()
@@ -893,6 +1048,20 @@ async def settings_webhook_test(request: Request) -> Response:
     except Exception as exc:
         return HTMLResponse(f'<p class="msg error">Fehlgeschlagen: {type(exc).__name__}</p>')
     return HTMLResponse('<p class="msg ok">Testnachricht gesendet.</p>')
+
+
+@protected.post("/settings/kuma-test", response_class=HTMLResponse)
+async def settings_kuma_test(request: Request) -> Response:
+    state = nm(request)
+    url = load_settings(state.session_factory).kuma_push_url
+    if not url:
+        return HTMLResponse('<p class="msg error">Keine Push-URL gespeichert.</p>')
+    ok = await run_in_threadpool(kuma_push, url, await run_in_threadpool(state.health))
+    if not ok:
+        return HTMLResponse('<p class="msg error">Kuma nicht erreichbar oder URL falsch.</p>')
+    return HTMLResponse(
+        '<p class="msg ok">Gemeldet – in Kuma sollte der Monitor jetzt grün/rot sein.</p>'
+    )
 
 
 @protected.post("/settings/password", response_class=HTMLResponse)

@@ -8,6 +8,32 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 
 ## [Unreleased]
 
+## [0.3.0] – 2026-10-11
+
+### Hinzugefügt
+- **Anleitung** (`docs/ANLEITUNG.md`) mit Screenshots, zugleich in der Oberfläche
+  unter *Hilfe*; „Hilfe zu dieser Seite“ in der Kopfzeile und „?“-Links an den
+  Formularabschnitten führen direkt zum passenden Abschnitt.
+- **Roadmap** (`ROADMAP.md`).
+- **Uptime Kuma:** `/healthz` mit Version, Scheduler-Herzschlag und Einzelprüfungen;
+  Einzel-Endpunkte `/healthz/mount/<name>` und `/healthz/rule/<nummer>` (200/503/404);
+  Push an einen Kuma-Push-Monitor jede Minute (*Einstellungen → Überwachung*, URL
+  maskiert, Test-Knopf, fertige Adressen für HTTP-Monitore).
+
+### Geändert
+- **Menü neu aufgebaut:** Seitenleiste mit Gruppen in der Reihenfolge der
+  Einrichtung (Übersicht · Verbindungen · Automatisierung · System), Symbole,
+  Zähler (z. B. „2 gestört“, „1/2 aktiv“), Statusampel in der Kopfzeile; auf dem
+  Handy ausklappbares Menü.
+- SFTP-Formular zeigt nur noch passende Felder und Hinweise (kein Passwortfeld bei
+  Schlüssel-Anmeldung, keine SMB-Hinweise); kompaktere Schlüsselseite.
+- Gesundheit: Eine aktive Regel mit drei fehlgeschlagenen Läufen in Folge gilt jetzt
+  ebenfalls als Problem (nicht nur „zu lange kein Erfolg“).
+
+### Behoben
+- `aria-current` im Menü und der gesperrte Löschknopf auf der Schlüsselseite
+  wurden von Jinja maskiert (`=&#34;`) und wirkten nicht; Test prüft alle Seiten.
+
 ## [0.2.1] – 2026-10-11
 
 ### Behoben
@@ -165,7 +191,8 @@ Erste Version.
 - Löschen von Zugangsdaten, die noch von einem Mount benutzt werden, trennt den
   Mount nicht mehr stillschweigend ab, sondern wird von der Datenbank abgelehnt.
 
-[Unreleased]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.2.1...HEAD
+[Unreleased]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.3.0...HEAD
+[0.3.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.2.1...v0.3.0
 [0.2.1]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.2.0...v0.2.1
 [0.2.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.1.1...v0.2.0
 [0.1.1]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.1.0...v0.1.1

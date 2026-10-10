@@ -8,7 +8,7 @@
   <fieldset><legend>Protokoll</legend><div class="fields">
     {{ field('retention_days', 'Aufbewahrung (Tage)', cfg.retention_days, type='number', errors=errors, attrs='min="1" max="3650"') }}
   </div></fieldset>
-  <fieldset><legend>Benachrichtigung (Webhook)</legend><div class="fields">
+  <fieldset><legend>Benachrichtigung (Webhook) <a class="legend-help" href="/help#benachrichtigungen" title="Hilfe">?</a></legend><div class="fields">
     {{ select('notify_mode', 'Benachrichtigen', [('off', 'nie'), ('every', 'bei jedem fehlgeschlagenen Lauf'), ('after_n', 'nach N Fehlschlägen in Folge')], cfg.notify_mode.value, errors=errors) }}
     <div data-show-for="notify_mode:after_n">{{ field('notify_after', 'N', cfg.notify_after, type='number', errors=errors, attrs='min="1"') }}</div>
     {{ field('webhook_url', 'Webhook-URL', mask_url(cfg.webhook_url), errors=errors, wide=true, placeholder='https://ntfy.sh/mein-topic', hint='Wird nur gekürzt angezeigt; unverändert lassen = behalten, leeren = entfernen.') }}
@@ -19,6 +19,18 @@
       <span class="hint">Platzhalter: $event $title $message $rule $time $host – bei JSON automatisch maskiert.</span></div>
   </div>
   <div class="row"><button type="button" hx-post="/settings/webhook-test" hx-target="#hook-result">Test senden (gespeicherte Einstellungen)</button><span id="hook-result"></span></div>
+  </fieldset>
+  <fieldset><legend>Überwachung (Uptime Kuma) <a class="legend-help" href="/help#uptime-kuma" title="Hilfe">?</a></legend>
+    <div class="fields">
+      {{ field('kuma_push_url', 'Push-URL (Kuma-Monitor vom Typ „Push“)', mask_url(cfg.kuma_push_url), errors=errors, wide=true, placeholder='https://kuma.lan/api/push/AbCdEf?status=up&msg=OK&ping=', hint='NetMover meldet jede Minute den Zustand. Leer = aus. Wird nur gekürzt angezeigt.') }}
+    </div>
+    <div class="row"><button type="button" hx-post="/settings/kuma-test" hx-target="#kuma-result">Push jetzt testen (gespeicherte URL)</button><span id="kuma-result"></span></div>
+    <details class="small"><summary>Adressen für HTTP-Monitore (Kuma fragt NetMover ab)</summary>
+      <table class="small"><tbody>
+      {% for label, url in monitor_urls %}<tr><td>{{ label }}</td><td class="mono">{{ url }}</td></tr>{% endfor %}
+      </tbody></table>
+      <p class="muted small">200 = in Ordnung, 503 = Problem. Ohne Anmeldung erreichbar.</p>
+    </details>
   </fieldset>
   <button class="primary">Speichern</button>
 </form>

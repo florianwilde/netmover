@@ -7,8 +7,8 @@
 <form class="form" method="post" data-dynamic>
   <input type="hidden" name="csrf_token" value="{{ csrf }}">
   {% if mount %}<input type="hidden" name="mount_id" value="{{ mount.id }}">{% endif %}
-  <fieldset><legend>Verbindung</legend><div class="fields">
-    {{ field('name', 'Name', d.name, errors=errors, attrs='required maxlength="100"', hint=('Verzeichnis: ' ~ mount.mountpoint if mount and mount.mountpoint else 'Bestimmt das Verzeichnis unter /mnt/netmover')) }}
+  <fieldset><legend>Verbindung <a class="legend-help" href="/help#anbindung-felder" title="Hilfe">?</a></legend><div class="fields">
+    {{ field('name', 'Name', d.name, errors=errors, attrs='required maxlength="100"', hint=('Verzeichnis: ' ~ mount.mountpoint if mount and mount.mountpoint else '')) }}
     {{ select('type', 'Typ', [('cifs', 'SMB/CIFS'), ('nfs4', 'NFS 4'), ('nfs3', 'NFS 3'), ('sftp', 'SFTP (nur Ziel)')], d.type.value, errors=errors) }}
     {{ field('server', 'Server', d.server, errors=errors, placeholder='192.168.1.10 oder nas.lan', attrs='required') }}
     <div class="field{{ ' has-error' if errors.get('share') }}">
@@ -22,32 +22,32 @@
     <div data-show-for="type:sftp">{{ field('port', 'SSH-Port', d.port or '', type='number', errors=errors, placeholder='22') }}</div>
   </div></fieldset>
 
-  <fieldset data-show-for="type:cifs sftp"><legend>Anmeldung</legend><div class="fields">
+  <fieldset data-show-for="type:cifs sftp"><legend>Anmeldung <a class="legend-help" href="/help#anbindung-felder" title="Hilfe">?</a></legend><div class="fields">
     <div data-show-for="type:sftp">{{ select('auth', 'Anmeldeart', [('ssh_key', 'SSH-Schlüssel'), ('password', 'Passwort')], d.auth.value, errors=errors) }}</div>
     <div data-show-for="type:sftp"><div data-show-for="auth:ssh_key">
       {{ select('key_id', 'Schlüssel', key_options, d.key_id, errors=errors, hint='Gespeicherte Schlüssel verwalten unter „Schlüssel“.') }}
     </div></div>
-    {{ field('username', 'Benutzername', d.username, errors=errors, attrs='autocomplete="off"', hint='Bei CIFS leer lassen für Gastzugang') }}
+    {{ field('username', 'Benutzername', d.username, errors=errors, attrs='autocomplete="off"') }}
     <div data-show-for="type:cifs">{{ field('domain', 'Domäne (optional)', d.domain, errors=errors) }}</div>
-    <div class="field{{ ' has-error' if errors.get('password') }}" id="pw-field">
+    <div class="field{{ ' has-error' if errors.get('password') }}" id="pw-field" data-show-for="type:cifs|auth:password">
       <label for="f-password">Passwort</label>
       <input id="f-password" type="password" name="password" autocomplete="new-password" placeholder="{{ '••••••' if has_secret }}">
       {% if errors.get('password') %}<span class="error">{{ errors['password'] }}</span>{% endif %}
-      <span class="hint">{{ 'Leer lassen = unverändert. ' if has_secret }}Bei SFTP mit Schlüssel leer lassen.</span>
+      <span class="hint">{{ 'Leer lassen = unverändert. ' if has_secret }}<span data-show-for="type:cifs">Benutzer und Passwort leer = Gastzugang.</span></span>
     </div>
   </div>
   {% if public_key %}<div class="field wide"><label>Öffentlicher Schlüssel dieser Anbindung (in ~/.ssh/authorized_keys des Zielbenutzers eintragen)</label>
     <pre class="mono card" id="pubkey">{{ public_key }}</pre><button class="small" type="button" data-copy="pubkey">kopieren</button></div>{% endif %}
   </fieldset>
 
-  <fieldset data-show-for="type:cifs"><legend>Eigentümer und Rechte (CIFS)</legend><div class="fields">
+  <fieldset data-show-for="type:cifs"><legend>Eigentümer und Rechte (CIFS) <a class="legend-help" href="/help#anbindung-felder" title="Hilfe">?</a></legend><div class="fields">
     {{ field('uid', 'uid', d.uid, type='number', errors=errors, hint='Eigentümer aller Dateien im Mount') }}
     {{ field('gid', 'gid', d.gid, type='number', errors=errors) }}
     {{ field('file_mode', 'file_mode', d.file_mode, errors=errors, placeholder='0644') }}
     {{ field('dir_mode', 'dir_mode', d.dir_mode, errors=errors, placeholder='0755') }}
   </div></fieldset>
 
-  <fieldset data-show-for="type:cifs nfs3 nfs4"><legend>Erweitert</legend><div class="fields">
+  <fieldset data-show-for="type:cifs nfs3 nfs4"><legend>Erweitert <a class="legend-help" href="/help#anbindung-felder" title="Hilfe">?</a></legend><div class="fields">
     {{ field('extra_options', 'Zusatzoptionen', d.extra_options, errors=errors, wide=true, placeholder='vers=3.0,noserverino', hint='Kommagetrennt; nur erlaubte Optionen. Zugangsdaten setzt NetMover selbst.') }}
     {{ check('auto_mount', 'Beim Start automatisch einhängen', d.auto_mount) }}
   </div></fieldset>
@@ -55,7 +55,7 @@
 
   <div class="row">
     <button class="primary">Speichern</button>
-    <button type="button" hx-post="/mounts/test" hx-include="closest form" hx-target="#form-check" hx-swap="innerHTML">
+    <button type="button" title="Einhängen, lesen, schreiben – ohne zu speichern" hx-post="/mounts/test" hx-include="closest form" hx-target="#form-check" hx-swap="innerHTML">
       Testen <span class="htmx-indicator">(läuft …)</span></button>
     <a class="btn" href="/mounts">Abbrechen</a>
   </div>

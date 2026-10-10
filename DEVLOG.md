@@ -16,9 +16,38 @@ Zeiten in Ortszeit (Europe/Berlin).
 | 2026-10-10 | 21:36 | 22:05 | 0:29  | –       | Praxistest auf VM, Release 0.1.1       |
 | 2026-10-10 | 22:45 | 23:00 | 0:15  | –       | Echtes NAS/Paperless anbinden          |
 | 2026-10-10 | 23:31 | 23:58 | 0:27  | –       | Schlüsselverwaltung, Update-Skript, 0.2.x |
-| **Summe**  |       |       | **2:17** |      |                                        |
+| 2026-10-11 | 00:13 | 00:32 | 0:19  | –       | Menü, Anleitung, Roadmap, Uptime Kuma (0.3.0) |
+| **Summe**  |       |       | **2:36** |      |                                        |
 
 ---
+
+## 2026-10-11 · 00:13–00:32 · Menü, Anleitung, Roadmap, Uptime Kuma (0.3.0)
+
+**Erledigt**
+- Seitenleiste mit Gruppen, Symbolen (Inline-SVG), Zählern und Statusampel;
+  Handy-Menü per Knopf (ohne JS sichtbar).
+- `docs/ANLEITUNG.md` (für Anwender) mit Sprungmarken; Hilfe-Seite rendert sie per
+  Python-Markdown, das Paket liefert `docs/` mit (hatch force-include).
+- `ROADMAP.md`; Nutzerwünsche eingeplant: SFTP als Quelle, gespeicherte Zugangsdaten,
+  automatisches Pausieren/Fortsetzen, E-Mail (0.4.0).
+- Uptime Kuma: ausführliches `/healthz`, Einzel-Endpunkte, Push-Job.
+- 13 neue Tests (278 gesamt).
+
+**Wie geprüft**
+- Erstmals echte Screenshots mit Playwright (Chromium, Scratchpad-venv) gegen eine
+  Demo-Instanz (Fake-Backend), Desktop 1366 px und Handy 390 px, hell und dunkel.
+  Daraus gefunden und behoben: überflüssiges Passwortfeld/SMB-Hinweise bei SFTP,
+  sperriges Umbenennen auf der Schlüsselseite, Tabellen in der Hilfe ragten auf
+  dem Handy über den Rand. Dieselben Screenshots sind jetzt in der Anleitung
+  (128-Farben-PNG, zusammen ~150 KB; Demo-Pfad per DOM durch `/mnt/netmover` ersetzt).
+- Ein echter Fehler, den erst der Blick auf das HTML zeigte: `{{ 'attr="x"' if … }}`
+  wird von Jinja maskiert → `aria-current` und `disabled title` wirkten nicht.
+
+**Entscheidungen**
+- Automatisches Pausieren: kein Deaktivieren (müsste nach jedem NAS-Neustart von
+  Hand rückgängig gemacht werden), sondern „wartet auf Anbindung“ mit
+  automatischem Fortsetzen – für 0.4.0 vorgeschlagen.
+- Regel mit 3 Fehlschlägen in Folge zählt jetzt als Problem in `/healthz`.
 
 ## 2026-10-10 · 23:31–23:58 · Schlüsselverwaltung, Update-Skript, Releases 0.2.0/0.2.1
 

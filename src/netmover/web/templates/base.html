@@ -1,3 +1,4 @@
+{% from "icons.html" import icon %}
 <!doctype html>
 <html lang="de">
 <head>
@@ -10,28 +11,54 @@
   <script src="/static/htmx.min.js?v=2.0.4" defer></script>
   <script src="/static/app.js?v={{ version }}" defer></script>
 </head>
-<body>
+<body class="{{ 'with-nav' if logged_in else 'no-nav' }}">
 {% if logged_in %}
-<header class="top"><div class="inner">
+{% macro item(key, href, label, badge='', badge_cls='') -%}
+  <a href="{{ href }}" class="{{ 'active' if active == key }}"{% if active == key %} aria-current="page"{% endif %}>
+    {{ icon(key) }}<span>{{ label }}</span>{% if badge %}<span class="count {{ badge_cls }}">{{ badge }}</span>{% endif %}</a>
+{%- endmacro %}
+<header class="topbar">
+  <button type="button" class="menu-toggle" aria-controls="sidebar" aria-expanded="false">{{ icon('menu') }}<span>Menü</span></button>
   <a class="brand" href="/">NetMover</a>
-  <nav class="main">
-    <a href="/" class="{{ 'active' if active == 'status' }}">Status</a>
-    <a href="/mounts" class="{{ 'active' if active == 'mounts' }}">Anbindungen</a>
-    <a href="/keys" class="{{ 'active' if active == 'keys' }}">Schlüssel</a>
-    <a href="/rules" class="{{ 'active' if active == 'rules' }}">Regeln</a>
-    <a href="/log" class="{{ 'active' if active == 'log' }}">Protokoll</a>
-    <a href="/settings" class="{{ 'active' if active == 'settings' }}">Einstellungen</a>
-  </nav>
-  <form class="inline" method="post" action="/logout">
-    <input type="hidden" name="csrf_token" value="{{ csrf }}">
-    <button class="small">Abmelden</button>
-  </form>
-</div></header>
+  {% if nav %}
+  <a class="health {{ 'ok' if nav.healthy else 'bad' }}" href="/" title="Gesundheitszustand">
+    <span class="dot"></span>{{ 'Alles in Ordnung' if nav.healthy else (nav.problems ~ (' Problem' if nav.problems == 1 else ' Probleme')) }}</a>
+  {% endif %}
+  <span class="spacer"></span>
+  {% if help_anchor %}<a class="help-link" href="/help#{{ help_anchor }}">{{ icon('help') }}<span>Hilfe zu dieser Seite</span></a>{% endif %}
+</header>
+<nav id="sidebar" class="sidebar" aria-label="Hauptmenü">
+  <div class="nav-group">
+    <div class="nav-title">Übersicht</div>
+    {{ item('status', '/', 'Status') }}
+  </div>
+  <div class="nav-group">
+    <div class="nav-title">Verbindungen</div>
+    {{ item('mounts', '/mounts', 'Anbindungen', (nav.mounts_bad ~ ' gestört') if nav and nav.mounts_bad else (nav.mounts if nav and nav.mounts else ''), 'bad' if nav and nav.mounts_bad else '') }}
+    {{ item('keys', '/keys', 'Schlüssel', nav.keys if nav and nav.keys else '') }}
+  </div>
+  <div class="nav-group">
+    <div class="nav-title">Automatisierung</div>
+    {{ item('rules', '/rules', 'Regeln', (nav.rules_active ~ '/' ~ nav.rules ~ ' aktiv') if nav and nav.rules else '') }}
+    {{ item('log', '/log', 'Protokoll') }}
+  </div>
+  <div class="nav-group">
+    <div class="nav-title">System</div>
+    {{ item('settings', '/settings', 'Einstellungen') }}
+    {{ item('help', '/help', 'Hilfe') }}
+  </div>
+  <div class="nav-foot">
+    <form method="post" action="/logout">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button class="nav-button">{{ icon('logout') }}<span>Abmelden</span></button>
+    </form>
+    <div class="version">NetMover {{ version }}</div>
+  </div>
+</nav>
 {% endif %}
 <main>
   {% for kind, text in flashes %}<p class="msg {{ kind }}">{{ text }}</p>{% endfor %}
   {% block content %}{% endblock %}
 </main>
-<footer class="foot muted small">NetMover {{ version }}</footer>
 </body>
 </html>

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -17,66 +16,7 @@ from netmover.db import session_scope
 from netmover.models import Credential, Mount, MountState, Rule, Run, RunStatus
 from netmover.mounting.fake import FakeMountBackend
 from netmover.web.app import create_app
-
-PASSWORD = "sehr-geheim-123"
-
-
-@pytest.fixture
-def settings(tmp_path: Path) -> Settings:
-    return Settings(
-        data_dir=tmp_path / "lib",
-        run_dir=tmp_path / "run",
-        mount_base=tmp_path / "mnt",
-        mount_backend="fake",
-    )
-
-
-@pytest.fixture
-def backend(tmp_path: Path) -> Iterator[FakeMountBackend]:
-    b = FakeMountBackend(tmp_path / "fake")
-    yield b
-    b.release_hangs()
-
-
-@pytest.fixture
-def state(settings: Settings, backend: FakeMountBackend) -> NetMover:
-    return NetMover(settings, backend=backend)
-
-
-@pytest.fixture
-def raw_client(settings: Settings, state: NetMover) -> Iterator[TestClient]:
-    with TestClient(create_app(settings, state), follow_redirects=False) as c:
-        yield c
-
-
-def csrf_of(html: str) -> str:
-    m = re.search(r'name="csrf-token" content="([^"]+)"', html)
-    assert m, "kein CSRF-Token in der Seite"
-    return m.group(1)
-
-
-def do_setup(c: TestClient) -> str:
-    page = c.get("/setup")
-    token = csrf_of(page.text)
-    code = c.app.state.setup_code.code  # type: ignore[attr-defined]
-    r = c.post(
-        "/setup",
-        data={"csrf_token": token, "code": code, "password": PASSWORD, "confirm": PASSWORD},
-    )
-    assert r.status_code == 303, r.text
-    return csrf_of(c.get("/").text)
-
-
-@pytest.fixture
-def client(raw_client: TestClient) -> TestClient:
-    raw_client.headers["X-Test-CSRF"] = do_setup(raw_client)
-    return raw_client
-
-
-def post(c: TestClient, url: str, data: dict[str, str] | None = None, **kw: object):  # type: ignore[no-untyped-def]
-    payload = {"csrf_token": c.headers["X-Test-CSRF"], **(data or {})}
-    return c.post(url, data=payload, **kw)  # type: ignore[arg-type]
-
+from tests.webutil import PASSWORD, csrf_of, do_setup, post
 
 # -- Einrichtung und Anmeldung --------------------------------------------------------------
 
@@ -621,3 +561,23 @@ def test_keys_page_generate_import_select_delete(client: TestClient, state: NetM
 def test_key_import_error_is_shown(client: TestClient) -> None:
     post(client, "/keys/import", {"name": "x", "private_key": "kein schlüssel", "passphrase": ""})
     assert "Kein lesbarer privater Schlüssel" in client.get("/keys").text
+
+
+def test_no_escaped_attributes_in_pages(client: TestClient, state: NetMover) -> None:
+    """Attribute in {{ … }} werden von Jinja maskiert – dann landet &#34; im HTML."""
+
+    post(client, "/keys/generate", {"name": "k"})
+    for url in (
+        "/",
+        "/mounts",
+        "/mounts/new",
+        "/keys",
+        "/rules",
+        "/rules/new",
+        "/log",
+        "/settings",
+        "/help",
+    ):
+        html = client.get(url).text
+        broken = re.findall(r"<[a-z][^<>]*=&#34;[^<>]*>", html)  # nur in Tags, nicht im Text
+        assert not broken, (url, broken[:2])

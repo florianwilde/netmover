@@ -5,13 +5,18 @@ from pathlib import Path
 
 import pytest
 from cryptography.fernet import Fernet
+from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
+from netmover.app_state import NetMover
+from netmover.config import Settings
 from netmover.crypto import SecretBox
 from netmover.db import make_engine, make_session_factory, session_scope, upgrade
 from netmover.models import Credential, CredentialKind, Mount, MountType
 from netmover.mounting.fake import FakeMountBackend
 from netmover.mounting.manager import MountManager
+from netmover.web.app import create_app
+from tests.webutil import do_setup
 
 
 @pytest.fixture
@@ -124,3 +129,40 @@ def make_mount(
             return m.id
 
     return factory
+
+
+# -- Weboberfläche -----------------------------------------------------------------------------
+
+
+@pytest.fixture
+def settings(tmp_path: Path) -> Settings:
+    return Settings(
+        data_dir=tmp_path / "lib",
+        run_dir=tmp_path / "run",
+        mount_base=tmp_path / "mnt",
+        mount_backend="fake",
+    )
+
+
+@pytest.fixture
+def backend(tmp_path: Path) -> Iterator[FakeMountBackend]:
+    b = FakeMountBackend(tmp_path / "fake")
+    yield b
+    b.release_hangs()
+
+
+@pytest.fixture
+def state(settings: Settings, backend: FakeMountBackend) -> NetMover:
+    return NetMover(settings, backend=backend)
+
+
+@pytest.fixture
+def raw_client(settings: Settings, state: NetMover) -> Iterator[TestClient]:
+    with TestClient(create_app(settings, state), follow_redirects=False) as c:
+        yield c
+
+
+@pytest.fixture
+def client(raw_client: TestClient) -> TestClient:
+    raw_client.headers["X-Test-CSRF"] = do_setup(raw_client)
+    return raw_client

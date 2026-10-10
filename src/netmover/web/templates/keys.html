@@ -2,7 +2,7 @@
 {% from "macros.html" import csrf_field %}
 {% block title %}Schlüssel{% endblock %}
 {% block content %}
-<h1>SSH-Schlüssel</h1>
+<h1>Schlüssel</h1>
 <p class="muted small">Gespeicherte Schlüssel für SFTP-Anbindungen. Ein Schlüssel kann von mehreren
   Anbindungen benutzt werden; den Benutzernamen legt jede Anbindung selbst fest. Private Schlüssel
   liegen verschlüsselt in der Datenbank und werden nie angezeigt.</p>
@@ -15,11 +15,12 @@
     <div><strong>{{ k.name }}</strong> <span class="badge">{{ k.key_type.removeprefix('ssh-') }}</span>
       {% if k.used_by %}<span class="badge ok">benutzt von {{ k.used_by|join(', ') }}</span>{% else %}<span class="badge">unbenutzt</span>{% endif %}</div>
     <div class="row">
-      <form class="inline row" method="post" action="/keys/{{ k.id }}/rename">{{ csrf_field(csrf) }}
-        <input type="text" name="name" value="{{ k.name }}" aria-label="Neuer Name" required maxlength="100">
-        <button class="small">Umbenennen</button></form>
+      <details class="rename"><summary class="btn small">Umbenennen</summary>
+        <form class="row" method="post" action="/keys/{{ k.id }}/rename">{{ csrf_field(csrf) }}
+          <input type="text" name="name" value="{{ k.name }}" aria-label="Neuer Name" required maxlength="100">
+          <button class="small primary">Speichern</button></form></details>
       <form class="inline" method="post" action="/keys/{{ k.id }}/delete" data-confirm="Schlüssel „{{ k.name }}“ löschen?">{{ csrf_field(csrf) }}
-        <button class="small danger" {{ 'disabled' if k.used_by }}>Löschen</button></form>
+        <button class="small danger"{% if k.used_by %} disabled title="Wird noch benutzt"{% endif %}>Löschen</button></form>
     </div>
   </div>
   <div class="small muted">Fingerabdruck <span class="mono">{{ k.fingerprint }}</span> · angelegt {{ k.created_at|localdt }}</div>
@@ -37,7 +38,7 @@
 
 <h2>Neuen Schlüssel erzeugen</h2>
 <form class="form card row" method="post" action="/keys/generate">{{ csrf_field(csrf) }}
-  <input type="text" name="name" placeholder="Name, z. B. paperless-lxc" aria-label="Name" required maxlength="100">
+  <input class="w-auto" type="text" name="name" placeholder="Name, z. B. paperless-lxc" aria-label="Name" required maxlength="100">
   <button class="primary">Ed25519-Schlüssel erzeugen</button>
 </form>
 
