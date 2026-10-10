@@ -8,7 +8,9 @@ Optionszeile – die stünde sonst in der Prozessliste.
 
 from __future__ import annotations
 
+import contextlib
 import os
+import signal
 import subprocess
 import uuid
 from collections.abc import Callable, Sequence
@@ -23,6 +25,28 @@ from netmover.mounting.mountinfo import MOUNTINFO, find_mount, read_mountinfo
 log = get_logger(__name__)
 
 Runner = Callable[..., "subprocess.CompletedProcess[str]"]
+
+
+def run_process_group(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+    """Wie ``subprocess.run``, aber in eigener Prozessgruppe: Bei Zeitüberschreitung
+    wird die ganze Gruppe beendet. ``mount`` startet Hilfsprogramme wie
+    ``mount.nfs``; würde nur ``mount`` beendet, liefe ``mount.nfs`` weiter und
+    hängte womöglich Minuten später doch noch ein (auf der Test-VM beobachtet)."""
+    timeout = kwargs.pop("timeout", None)
+    kwargs.pop("check", None)
+    capture = kwargs.pop("capture_output", False)
+    if capture:
+        kwargs["stdout"] = kwargs["stderr"] = subprocess.PIPE
+    with subprocess.Popen(argv, start_new_session=True, **kwargs) as proc:
+        try:
+            out, err = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(proc.pid, signal.SIGKILL)
+            proc.communicate()
+            raise
+    return subprocess.CompletedProcess(argv, proc.returncode, out, err)
+
 
 _ENV = {"LC_ALL": "C", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
 
@@ -60,7 +84,7 @@ class LinuxMountBackend(MountBackend):
         self,
         run_dir: Path,
         mountinfo_path: Path = MOUNTINFO,
-        runner: Runner = subprocess.run,
+        runner: Runner = run_process_group,
     ) -> None:
         self.run_dir = run_dir
         self.mountinfo_path = mountinfo_path

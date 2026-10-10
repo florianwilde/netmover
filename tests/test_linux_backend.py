@@ -115,3 +115,38 @@ def test_is_mounted_reads_mountinfo(tmp_path: Path) -> None:
 )
 def test_explain(fstype: str, msg: str, expect: str) -> None:
     assert expect in explain_mount_error(fstype, msg)
+
+
+def _alive(pid: int) -> bool:
+    try:
+        with open(f"/proc/{pid}/stat") as fh:
+            return fh.read().split(")")[-1].split()[0] != "Z"
+    except FileNotFoundError:
+        return False
+
+
+def test_timeout_kills_whole_process_group(tmp_path: Path) -> None:
+    """mount startet Helfer (mount.nfs) – die dürfen nach dem Zeitlimit nicht weiterlaufen."""
+    from netmover.mounting.linux import run_process_group
+
+    pidfile = tmp_path / "helper.pid"
+    script = f"sleep 30 & echo $! > {pidfile}; wait"
+    with pytest.raises(subprocess.TimeoutExpired):
+        run_process_group(["sh", "-c", script], capture_output=True, text=True, timeout=0.5)
+    helper = int(pidfile.read_text())
+    for _ in range(20):
+        if not _alive(helper):
+            break
+        import time
+
+        time.sleep(0.05)
+    assert not _alive(helper)
+
+
+def test_process_group_runner_returns_output() -> None:
+    from netmover.mounting.linux import run_process_group
+
+    r = run_process_group(
+        ["sh", "-c", "echo out; echo err >&2; exit 3"], capture_output=True, text=True, timeout=5
+    )
+    assert (r.returncode, r.stdout, r.stderr) == (3, "out\n", "err\n")
