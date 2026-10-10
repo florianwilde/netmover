@@ -1,0 +1,111 @@
+/* NetMover – handgeschrieben, ohne Build-Schritt. Hell/Dunkel nach Systemeinstellung. */
+:root {
+  --bg: #f6f7f9; --card: #fff; --fg: #1d2330; --muted: #5d6676; --line: #dfe3ea;
+  --accent: #2f6fde; --accent-fg: #fff; --ok: #1e8e3e; --warn: #b26a00; --err: #c62828;
+  --ok-bg: #e6f4ea; --warn-bg: #fff4e0; --err-bg: #fdecea; --info-bg: #e8f0fe;
+  --radius: 8px; --gap: 12px;
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151b; --card: #1b2028; --fg: #e6e9ef; --muted: #9aa3b2; --line: #2c333e;
+    --accent: #6b9bff; --accent-fg: #0b1020; --ok: #57c27a; --warn: #f0a63a; --err: #ff6b6b;
+    --ok-bg: #16301f; --warn-bg: #36280f; --err-bg: #3a1717; --info-bg: #182540;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); }
+a { color: var(--accent); }
+code, pre, .mono { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: .9em; }
+pre { white-space: pre-wrap; word-break: break-word; margin: 0; }
+
+header.top { background: var(--card); border-bottom: 1px solid var(--line); }
+header.top .inner { max-width: 1200px; margin: 0 auto; display: flex; align-items: center;
+  gap: var(--gap); padding: 8px 16px; flex-wrap: wrap; }
+header.top .brand { font-weight: 700; text-decoration: none; color: var(--fg); margin-right: 8px; }
+nav.main { display: flex; gap: 4px; flex-wrap: wrap; flex: 1; }
+nav.main a { padding: 6px 10px; border-radius: var(--radius); text-decoration: none; color: var(--fg); }
+nav.main a.active, nav.main a:hover { background: var(--bg); }
+main { max-width: 1200px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 1.4rem; margin: 4px 0 16px; }
+h2 { font-size: 1.1rem; margin: 24px 0 8px; }
+.muted { color: var(--muted); }
+.small { font-size: .85em; }
+
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+.grid { display: grid; gap: var(--gap); grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.spread { justify-content: space-between; }
+.stack > * + * { margin-top: 8px; }
+
+.badge { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: .8em; font-weight: 600;
+  background: var(--bg); border: 1px solid var(--line); white-space: nowrap; }
+.badge.ok { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
+.badge.warn { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
+.badge.err { background: var(--err-bg); color: var(--err); border-color: transparent; }
+
+.msg { padding: 8px 12px; border-radius: var(--radius); margin: 0 0 10px; }
+.msg.ok { background: var(--ok-bg); } .msg.error { background: var(--err-bg); }
+.msg.info { background: var(--info-bg); } .msg.warn { background: var(--warn-bg); }
+
+
+table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius); overflow: hidden; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: .8em; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); background: var(--bg); }
+tr:last-child td { border-bottom: 0; }
+tr.warn td { background: var(--warn-bg); }
+tr.err td { background: var(--err-bg); }
+.table-wrap { overflow-x: auto; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+button, .btn { font: inherit; padding: 6px 12px; border-radius: var(--radius); border: 1px solid var(--line);
+  background: var(--card); color: var(--fg); cursor: pointer; text-decoration: none; display: inline-block; }
+button.primary, .btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+button.danger { color: var(--err); }
+button.small, .btn.small { padding: 3px 9px; font-size: .85em; }
+button:disabled { opacity: .5; }
+form.inline { display: inline; margin: 0; }
+
+form.form { max-width: 760px; }
+fieldset { border: 1px solid var(--line); border-radius: var(--radius); margin: 0 0 14px; padding: 10px 14px 14px; background: var(--card); }
+legend { font-weight: 600; padding: 0 6px; }
+.fields { display: grid; gap: 10px 14px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.field { display: flex; flex-direction: column; gap: 3px; }
+.field.wide { grid-column: 1 / -1; }
+.field label { font-size: .85em; font-weight: 600; }
+.field .hint { font-size: .8em; color: var(--muted); }
+.field .error { font-size: .85em; color: var(--err); }
+input[type=text], input[type=password], input[type=number], input[type=url], select, textarea {
+  font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--fg); width: 100%; }
+textarea { min-height: 70px; }
+.check { flex-direction: row; align-items: center; gap: 6px; }
+.has-error input, .has-error select, .has-error textarea { border-color: var(--err); }
+
+.steps { list-style: none; padding: 0; margin: 0; }
+.steps li { padding: 3px 0; }
+.steps .ico { display: inline-block; width: 1.4em; font-weight: 700; }
+.steps .ok { color: var(--ok); } .steps .fail { color: var(--err); } .steps .skip { color: var(--muted); }
+
+details > summary { cursor: pointer; }
+.htmx-indicator { display: none; }
+.htmx-request .htmx-indicator, .htmx-request.htmx-indicator { display: inline; }
+.login { max-width: 380px; margin: 10vh auto; }
+[hidden] { display: none !important; }
+
+@media (max-width: 640px) {
+  main { padding: 10px; }
+  th, td { padding: 6px; }
+  table.responsive thead { display: none; }
+  table.responsive tr { display: block; border-bottom: 1px solid var(--line); padding: 6px 0; }
+  table.responsive td { display: flex; justify-content: space-between; gap: 10px; border: 0; padding: 3px 8px; }
+  table.responsive td::before { content: attr(data-label); color: var(--muted); font-size: .85em; }
+  table.responsive td.num { text-align: left; }
+}
+
+.text-err { color: var(--err); } .text-warn { color: var(--warn); } .text-ok { color: var(--ok); }
+pre.text-err { margin-top: 6px; }
+ul.tight { margin: 4px 0 0; padding-left: 20px; }
+.foot { text-align: center; padding: 16px; }
+meter.fill { width: 100%; height: 8px; margin: 6px 0 2px; display: block; }

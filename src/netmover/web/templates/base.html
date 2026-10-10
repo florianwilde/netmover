@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf }}">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false, "allowEval": false}'>
+  <title>{% block title %}NetMover{% endblock %} · NetMover</title>
+  <link rel="stylesheet" href="/static/app.css?v={{ version }}">
+  <script src="/static/htmx.min.js?v=2.0.4" defer></script>
+  <script src="/static/app.js?v={{ version }}" defer></script>
+</head>
+<body>
+{% if logged_in %}
+<header class="top"><div class="inner">
+  <a class="brand" href="/">NetMover</a>
+  <nav class="main">
+    <a href="/" class="{{ 'active' if active == 'status' }}">Status</a>
+    <a href="/mounts" class="{{ 'active' if active == 'mounts' }}">Anbindungen</a>
+    <a href="/rules" class="{{ 'active' if active == 'rules' }}">Regeln</a>
+    <a href="/log" class="{{ 'active' if active == 'log' }}">Protokoll</a>
+    <a href="/settings" class="{{ 'active' if active == 'settings' }}">Einstellungen</a>
+  </nav>
+  <form class="inline" method="post" action="/logout">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <button class="small">Abmelden</button>
+  </form>
+</div></header>
+{% endif %}
+<main>
+  {% for kind, text in flashes %}<p class="msg {{ kind }}">{{ text }}</p>{% endfor %}
+  {% block content %}{% endblock %}
+</main>
+<footer class="foot muted small">NetMover {{ version }}</footer>
+</body>
+</html>

@@ -1,0 +1,18 @@
+{% from "macros.html" import run_badge %}
+<div class="card stack">
+{% if not run %}<p class="msg error">Probelauf nicht möglich (Regel gelöscht?).</p>
+{% else %}
+  <div class="row"><strong>Probelauf</strong> {{ run_badge(run.status) }}
+    <span class="muted small">{{ run.seen }} gefunden · {{ run.moved }} würden übertragen · {{ run.skipped }} übersprungen</span></div>
+  {% if run.message %}<p class="msg {{ 'error' if run.status == RunStatus.ERROR else 'info' }} small">{{ run.message }}</p>{% endif %}
+  {% if items %}
+  <div class="table-wrap"><table class="responsive small">
+    <thead><tr><th>Datei</th><th>Ziel</th><th>Ergebnis</th></tr></thead>
+    <tbody>{% for i in items %}
+      <tr><td data-label="Datei" class="mono">{{ i.src }}</td><td data-label="Ziel" class="mono">{{ i.dst or '–' }}</td>
+        <td data-label="Ergebnis">{{ i.message or i.status.value }}</td></tr>
+    {% endfor %}</tbody></table></div>
+  {% elif run.status != RunStatus.ERROR %}<p class="muted small">Keine passenden Dateien.</p>{% endif %}
+  <p class="muted small">Es wurde nichts verändert.</p>
+{% endif %}
+</div>

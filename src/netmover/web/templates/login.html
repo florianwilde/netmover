@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Anmelden{% endblock %}
+{% block content %}
+<div class="login card">
+  <h1>NetMover</h1>
+  {% if error %}<p class="msg error">{{ error }}</p>{% endif %}
+  <form method="post" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <div class="field">
+      <label for="pw">Passwort</label>
+      <input id="pw" type="password" name="password" autocomplete="current-password" autofocus required>
+    </div>
+    <button class="primary">Anmelden</button>
+  </form>
+</div>
+{% endblock %}

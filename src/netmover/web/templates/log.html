@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% from "macros.html" import run_badge %}
+{% block title %}Protokoll{% endblock %}
+{% block content %}
+<h1>Protokoll</h1>
+<form class="row card" method="get">
+  <select name="rule"><option value="">alle Regeln</option>
+    {% for id, name in rules %}<option value="{{ id }}" {{ 'selected' if id == rule_id }}>{{ name }}</option>{% endfor %}</select>
+  <select name="status"><option value="">jeder Status</option>
+    {% for st in [RunStatus.OK, RunStatus.PARTIAL, RunStatus.ERROR, RunStatus.SKIPPED] %}
+    <option value="{{ st.value }}" {{ 'selected' if st.value == status }}>{{ RUN_LABELS[st] }}</option>{% endfor %}</select>
+  <label class="row small"><input type="checkbox" name="all" value="1" {{ 'checked' if not active_only }}> auch leere Läufe</label>
+  <button>Filtern</button>
+  <span class="muted small">{{ total }} Läufe</span>
+</form>
+<div class="table-wrap"><table class="responsive">
+  <thead><tr><th>Zeitpunkt</th><th>Regel</th><th>Status</th><th class="num">Dauer</th><th class="num">gesehen</th><th class="num">übertragen</th><th class="num">übersprungen</th><th class="num">Fehler</th></tr></thead>
+  <tbody>
+  {% for run, rule_name in rows %}
+  <tr class="{{ 'err' if run.status == RunStatus.ERROR }}">
+    <td data-label="Zeitpunkt">{{ run.started_at|localdt }}{% if run.dry_run %} <span class="badge">Probe</span>{% endif %}{% if run.trigger.value == 'manual' %} <span class="badge">manuell</span>{% endif %}</td>
+    <td data-label="Regel">{{ rule_name }}</td>
+    <td data-label="Status">{{ run_badge(run.status) }}</td>
+    <td data-label="Dauer" class="num">{{ duration(run.started_at, run.finished_at) }}</td>
+    <td data-label="gesehen" class="num">{{ run.seen }}</td>
+    <td data-label="übertragen" class="num">{{ run.moved }}</td>
+    <td data-label="übersprungen" class="num">{{ run.skipped }}</td>
+    <td data-label="Fehler" class="num">{{ run.failed }}</td>
+  </tr>
+  {% if run.message or run.moved or run.skipped or run.failed %}
+  <tr><td colspan="8">
+    {% if run.message %}<div class="small {{ 'text-err' if run.status == RunStatus.ERROR }}">{{ run.message }}</div>{% endif %}
+    {% if run.moved or run.skipped or run.failed %}
+    <details hx-get="/log/{{ run.id }}/items" hx-trigger="toggle once" hx-target="find .items" hx-swap="innerHTML">
+      <summary class="small">Einzeldateien</summary><div class="items muted small">lädt …</div></details>
+    {% endif %}
+  </td></tr>
+  {% endif %}
+  {% else %}
+  <tr><td colspan="8" class="muted">Keine Läufe.</td></tr>
+  {% endfor %}
+  </tbody></table></div>
+{% if pages > 1 %}
+<div class="row">
+  {% set base = '?rule=' ~ (rule_id or '') ~ '&status=' ~ status ~ ('&all=1' if not active_only else '') %}
+  {% if page > 1 %}<a class="btn small" href="{{ base }}&page={{ page - 1 }}">← neuer</a>{% endif %}
+  <span class="small muted">Seite {{ page }} / {{ pages }}</span>
+  {% if page < pages %}<a class="btn small" href="{{ base }}&page={{ page + 1 }}">älter →</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

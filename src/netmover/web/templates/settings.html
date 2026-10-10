@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "macros.html" import field, select, check, csrf_field %}
+{% block title %}Einstellungen{% endblock %}
+{% block content %}
+<h1>Einstellungen</h1>
+<form class="form" method="post" action="/settings" data-dynamic>
+  {{ csrf_field(csrf) }}
+  <fieldset><legend>Protokoll</legend><div class="fields">
+    {{ field('retention_days', 'Aufbewahrung (Tage)', cfg.retention_days, type='number', errors=errors, attrs='min="1" max="3650"') }}
+  </div></fieldset>
+  <fieldset><legend>Benachrichtigung (Webhook)</legend><div class="fields">
+    {{ select('notify_mode', 'Benachrichtigen', [('off', 'nie'), ('every', 'bei jedem fehlgeschlagenen Lauf'), ('after_n', 'nach N Fehlschlägen in Folge')], cfg.notify_mode.value, errors=errors) }}
+    <div data-show-for="notify_mode:after_n">{{ field('notify_after', 'N', cfg.notify_after, type='number', errors=errors, attrs='min="1"') }}</div>
+    {{ field('webhook_url', 'Webhook-URL', mask_url(cfg.webhook_url), errors=errors, wide=true, placeholder='https://ntfy.sh/mein-topic', hint='Wird nur gekürzt angezeigt; unverändert lassen = behalten, leeren = entfernen.') }}
+    {{ field('webhook_content_type', 'Content-Type', cfg.webhook_content_type, errors=errors) }}
+    {{ check('notify_recovery', 'Entwarnung senden, wenn es wieder läuft', cfg.notify_recovery) }}
+    <div class="field wide"><label for="f-tpl">Vorlage</label>
+      <textarea id="f-tpl" name="webhook_template" class="mono">{{ cfg.webhook_template }}</textarea>
+      <span class="hint">Platzhalter: $event $title $message $rule $time $host – bei JSON automatisch maskiert.</span></div>
+  </div>
+  <div class="row"><button type="button" hx-post="/settings/webhook-test" hx-target="#hook-result">Test senden (gespeicherte Einstellungen)</button><span id="hook-result"></span></div>
+  </fieldset>
+  <button class="primary">Speichern</button>
+</form>
+
+<h2>Passwort ändern</h2>
+<form class="form card stack" method="post" action="/settings/password">
+  {{ csrf_field(csrf) }}
+  <div class="fields">
+    <div class="field"><label for="cur">Aktuelles Passwort</label><input id="cur" type="password" name="current" autocomplete="current-password" required></div>
+    <div class="field"><label for="np">Neues Passwort</label><input id="np" type="password" name="password" autocomplete="new-password" minlength="10" required></div>
+    <div class="field"><label for="np2">Wiederholen</label><input id="np2" type="password" name="confirm" autocomplete="new-password" minlength="10" required></div>
+  </div>
+  <button>Passwort ändern</button>
+</form>
+
+<h2>Export / Import</h2>
+<div class="card stack">
+  <p class="small muted">Export enthält Anbindungen, Regeln und Einstellungen – <strong>ohne</strong> Zugangsdaten und Webhook-URL.
+    Beim Import werden vorhandene Namen übersprungen; importierte Regeln sind zunächst deaktiviert.</p>
+  <div class="row"><a class="btn" href="/settings/export">Konfiguration exportieren</a></div>
+  <form class="row" method="post" action="/settings/import" enctype="multipart/form-data">
+    {{ csrf_field(csrf) }}<input type="file" name="file" accept="application/json,.json" required><button>Importieren</button>
+  </form>
+</div>
+{% endblock %}

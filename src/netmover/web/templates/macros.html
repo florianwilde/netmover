@@ -1,0 +1,43 @@
+{% macro field(name, label, value='', type='text', errors={}, hint='', wide=false, placeholder='', attrs='') -%}
+<div class="field{{ ' wide' if wide }}{{ ' has-error' if errors.get(name) }}">
+  <label for="f-{{ name }}">{{ label }}</label>
+  <input id="f-{{ name }}" type="{{ type }}" name="{{ name }}" value="{{ '' if value is none else value }}"
+         placeholder="{{ placeholder }}" {{ attrs|safe }}>
+  {% if errors.get(name) %}<span class="error">{{ errors[name] }}</span>{% endif %}
+  {% if hint %}<span class="hint">{{ hint }}</span>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro select(name, label, options, current, errors={}, hint='') -%}
+<div class="field{{ ' has-error' if errors.get(name) }}">
+  <label for="f-{{ name }}">{{ label }}</label>
+  <select id="f-{{ name }}" name="{{ name }}">
+    {% for value, text in options %}
+    <option value="{{ value }}" {{ 'selected' if value|string == current|string }}>{{ text }}</option>
+    {% endfor %}
+  </select>
+  {% if errors.get(name) %}<span class="error">{{ errors[name] }}</span>{% endif %}
+  {% if hint %}<span class="hint">{{ hint }}</span>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro check(name, label, checked, hint='') -%}
+<div class="field check">
+  <input id="f-{{ name }}" type="checkbox" name="{{ name }}" {{ 'checked' if checked }}>
+  <label for="f-{{ name }}">{{ label }}</label>
+  {% if hint %}<span class="hint">{{ hint }}</span>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro csrf_field(csrf) %}<input type="hidden" name="csrf_token" value="{{ csrf }}">{% endmacro %}
+
+{% macro state_badge(m) -%}
+{% set labels = SFTP_STATE_LABELS if m.type == MountType.SFTP else STATE_LABELS %}
+{% set cls = {'mounted': 'ok', 'degraded': 'warn', 'error': 'err'}.get(m.state.value, '') %}
+<span class="badge {{ cls }}">{{ labels[m.state] }}</span>
+{%- endmacro %}
+
+{% macro run_badge(status) -%}
+{% set cls = {'ok': 'ok', 'partial': 'warn', 'error': 'err'}.get(status.value, '') %}
+<span class="badge {{ cls }}">{{ RUN_LABELS[status] }}</span>
+{%- endmacro %}

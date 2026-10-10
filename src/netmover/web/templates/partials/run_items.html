@@ -1,0 +1,11 @@
+{% set cls = {'moved': 'ok', 'copied': 'ok', 'planned': 'ok', 'failed': 'err', 'quarantined': 'warn'} %}
+{% set labels = {'moved': 'verschoben', 'copied': 'kopiert', 'skipped': 'übersprungen', 'failed': 'Fehler', 'quarantined': 'Quarantäne', 'planned': 'geplant'} %}
+<table class="responsive small">
+  <thead><tr><th>Datei</th><th>Ziel</th><th class="num">Größe</th><th>Ergebnis</th></tr></thead>
+  <tbody>{% for i in items %}
+  <tr><td data-label="Datei" class="mono">{{ i.src }}</td><td data-label="Ziel" class="mono">{{ i.dst or '–' }}</td>
+    <td data-label="Größe" class="num">{{ i.size|bytes }}</td>
+    <td data-label="Ergebnis"><span class="badge {{ cls.get(i.status.value, '') }}">{{ labels[i.status.value] }}</span>
+      {% if i.message %}<span class="{{ 'text-err' if i.status.value == 'failed' }}">{{ i.message }}</span>{% endif %}</td></tr>
+  {% else %}<tr><td colspan="4" class="muted">Keine Einzeldateien protokolliert.</td></tr>{% endfor %}
+  </tbody></table>

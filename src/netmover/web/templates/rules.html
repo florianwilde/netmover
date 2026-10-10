@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% from "macros.html" import run_badge, csrf_field %}
+{% block title %}Regeln{% endblock %}
+{% block content %}
+<div class="row spread"><h1>Regeln</h1><a class="btn primary" href="/rules/new">+ Neue Regel</a></div>
+{% if not rules %}<p class="muted">Noch keine Regeln.</p>{% endif %}
+<div class="stack">
+{% for v in rules %}{% set r = v.r %}
+<div class="card" id="rule-{{ r.id }}">
+  <div class="row spread">
+    <div><strong>{{ r.name }}</strong>
+      {% if r.enabled %}<span class="badge ok">aktiv</span>{% else %}<span class="badge">aus</span>{% endif %}
+      {% if r.dry_run %}<span class="badge warn">nur Probelauf</span>{% endif %}
+      <span class="badge">{{ 'kopieren' if r.action == RuleAction.COPY else 'verschieben' }}</span>
+      <span class="badge">alle {{ r.interval_seconds }} s</span></div>
+    <div class="row">
+      <form class="inline" method="post" action="/rules/{{ r.id }}/run">{{ csrf_field(csrf) }}<button class="small" {{ 'disabled' if v.running_since }}>Jetzt ausführen</button></form>
+      <button class="small" hx-post="/rules/{{ r.id }}/dryrun" hx-target="#dry-{{ r.id }}" hx-swap="innerHTML">Probelauf <span class="htmx-indicator">…</span></button>
+      <form class="inline" method="post" action="/rules/{{ r.id }}/toggle">{{ csrf_field(csrf) }}<button class="small">{{ 'Deaktivieren' if r.enabled else 'Aktivieren' }}</button></form>
+      <a class="btn small" href="/rules/{{ r.id }}/edit">Bearbeiten</a>
+      <form class="inline" method="post" action="/rules/{{ r.id }}/delete" data-confirm="Regel „{{ r.name }}“ und ihr Protokoll löschen?">{{ csrf_field(csrf) }}<button class="small danger">Löschen</button></form>
+    </div>
+  </div>
+  <div class="muted small mono">{{ v.target }} · Filter {{ r.pattern }}{{ ' (rekursiv)' if r.recursive }}</div>
+  <div class="small">Letzter Lauf: {% if v.running_since %}<span class="badge warn">läuft seit {{ v.running_since|ago|replace('vor ', '') }}</span>{% elif v.last_run %}{{ run_badge(v.last_run.status) }} {{ v.last_run.finished_at|ago }}{% else %}–{% endif %}
+    · letzter Erfolg: <span class="{{ 'text-warn' if v.stale }}">{{ r.last_success_at|ago }}</span>
+    · nächster: {{ v.next_run|ago if v.next_run else '–' }}</div>
+  <div id="dry-{{ r.id }}"></div>
+</div>
+{% endfor %}
+</div>
+{% endblock %}

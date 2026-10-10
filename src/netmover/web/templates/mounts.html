@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% from "macros.html" import state_badge, csrf_field %}
+{% block title %}Anbindungen{% endblock %}
+{% block content %}
+<div class="row spread"><h1>Anbindungen</h1><a class="btn primary" href="/mounts/new">+ Neue Anbindung</a></div>
+{% if not mounts %}<p class="muted">Noch keine Anbindungen.</p>{% endif %}
+<div class="stack">
+{% for m in mounts %}
+<div class="card" id="mount-{{ m.id }}">
+  <div class="row spread">
+    <div><strong>{{ m.name }}</strong> {{ state_badge(m) }}
+      {% if not m.enabled %}<span class="badge">deaktiviert</span>{% endif %}
+      {% if m.auto_mount %}<span class="badge">auto</span>{% endif %}</div>
+    <div class="row">
+      <button class="small" hx-post="/mounts/{{ m.id }}/test" hx-target="#check-{{ m.id }}" hx-swap="innerHTML">
+        Testen <span class="htmx-indicator">…</span></button>
+      {% if m.type != MountType.SFTP %}
+        {% if m.state == MountState.MOUNTED or m.state == MountState.DEGRADED %}
+        <form class="inline" method="post" action="/mounts/{{ m.id }}/unmount" data-confirm="„{{ m.name }}“ aushängen?">{{ csrf_field(csrf) }}<button class="small">Aushängen</button></form>
+        {% else %}
+        <form class="inline" method="post" action="/mounts/{{ m.id }}/mount">{{ csrf_field(csrf) }}<button class="small">Einhängen</button></form>
+        {% endif %}
+      {% endif %}
+      <a class="btn small" href="/mounts/{{ m.id }}/edit">Bearbeiten</a>
+      <form class="inline" method="post" action="/mounts/{{ m.id }}/delete" data-confirm="„{{ m.name }}“ wirklich löschen?">{{ csrf_field(csrf) }}<button class="small danger">Löschen</button></form>
+    </div>
+  </div>
+  <div class="muted small mono">{{ m.type.value }} · {% if m.type == MountType.CIFS %}//{{ m.server }}/{{ m.share }}{% elif m.type == MountType.SFTP %}{{ m.server }}:{{ m.port or 22 }}{{ m.share }}{% else %}{{ m.server }}:{{ m.share }}{% endif %}
+    {% if m.mountpoint %} → {{ m.mountpoint }}{% endif %}</div>
+  {% if m.last_error %}<pre class="small text-err">{{ m.last_error }}</pre>{% endif %}
+  {% if m.type == MountType.SFTP %}
+    <div class="small">Hostschlüssel: {% if m.host_key %}<span class="mono">{{ m.host_key.split()[0] }}</span> festgehalten
+      <form class="inline" method="post" action="/mounts/{{ m.id }}/reset-hostkey" data-confirm="Hostschlüssel zurücksetzen? Nur tun, wenn der Server neu aufgesetzt wurde.">{{ csrf_field(csrf) }}<button class="small">zurücksetzen</button></form>
+      {% else %}<span class="text-warn">noch nicht bestätigt – bitte „Testen“</span>{% endif %}</div>
+    {% if pubkeys.get(m.id) %}
+    <details class="small"><summary>Öffentlicher Schlüssel für authorized_keys</summary>
+      <pre class="mono" id="pub-{{ m.id }}">{{ pubkeys[m.id] }}</pre>
+      <button class="small" type="button" data-copy="pub-{{ m.id }}">kopieren</button></details>
+    {% endif %}
+  {% endif %}
+  <div id="check-{{ m.id }}">
+    {% if reports.get(m.id) %}<details class="small"><summary class="muted">Letzter Test {{ m.last_test_at|ago }}</summary>
+      {% with report = reports[m.id], errors = {} %}{% include "partials/check_result.html" %}{% endwith %}</details>{% endif %}
+  </div>
+</div>
+{% endfor %}
+</div>
+{% endblock %}

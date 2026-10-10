@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Status{% endblock %}
+{% block content %}
+<div class="row spread"><h1>Status</h1>
+  <span class="muted small">aktualisiert sich alle 15 s</span></div>
+<div id="status-body" hx-get="/partials/status" hx-trigger="every 15s" hx-swap="innerHTML">
+  {% include "partials/status_body.html" %}
+</div>
+{% endblock %}

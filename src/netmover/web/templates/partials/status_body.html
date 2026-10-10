@@ -1,0 +1,54 @@
+{% from "macros.html" import state_badge, run_badge %}
+{% if not health.ok %}
+<div class="msg error"><strong>Achtung:</strong>
+  <ul class="tight">{% for p in health.problems %}<li>{{ p }}</li>{% endfor %}</ul></div>
+{% else %}
+<p class="msg ok">Alles in Ordnung.</p>
+{% endif %}
+
+<h2>Anbindungen</h2>
+{% if not mounts %}<p class="muted">Noch keine Anbindungen – <a href="/mounts/new">jetzt anlegen</a>.</p>{% endif %}
+<div class="grid">
+{% for v in mounts %}{% set m = v.m %}
+  <div class="card">
+    <div class="row spread"><strong><a href="/mounts#mount-{{ m.id }}">{{ m.name }}</a></strong>{{ state_badge(m) }}</div>
+    <div class="muted small mono">{{ m.type.value }} · {{ m.server }}{{ ':' if m.type != MountType.CIFS else '/' }}{{ m.share }}</div>
+    {% if m.state == MountState.MOUNTED and m.last_mounted_at and m.type != MountType.SFTP %}
+      <div class="small">eingehängt seit {{ m.last_mounted_at|localdt }}</div>
+    {% elif m.state in (MountState.DEGRADED, MountState.ERROR) %}
+      <div class="small">{{ 'gestört' if m.state == MountState.DEGRADED else 'Fehler' }} seit {{ m.state_since|localdt }} ({{ m.state_since|ago }})</div>
+    {% endif %}
+    {% if v.usage %}{% set used = (v.usage[0] - v.usage[1]) %}{% set pct = (100 * used / v.usage[0]) if v.usage[0] else 0 %}
+      <meter class="fill" min="0" max="100" low="85" high="95" optimum="0" value="{{ pct|round(1) }}">{{ pct|round(0)|int }} %</meter>
+      <div class="small muted">{{ v.usage[1]|bytes }} frei von {{ v.usage[0]|bytes }} ({{ pct|round(0)|int }} % belegt)</div>
+    {% endif %}
+    {% if m.last_error %}<pre class="small text-err">{{ m.last_error }}</pre>{% endif %}
+  </div>
+{% endfor %}
+</div>
+
+<h2>Regeln</h2>
+{% if not rules %}<p class="muted">Noch keine Regeln – <a href="/rules/new">jetzt anlegen</a>.</p>{% else %}
+<div class="table-wrap"><table class="responsive">
+  <thead><tr><th>Regel</th><th>Letztes Ergebnis</th><th>Letzter Erfolg</th><th>Nächster Lauf</th><th></th></tr></thead>
+  <tbody>
+  {% for v in rules %}{% set r = v.r %}
+  <tr class="{{ 'warn' if v.stale }}">
+    <td data-label="Regel"><strong>{{ r.name }}</strong>{% if not r.enabled %} <span class="badge">aus</span>{% endif %}{% if r.dry_run %} <span class="badge warn">Probelauf</span>{% endif %}
+      <div class="muted small mono">{{ v.target }}</div></td>
+    <td data-label="Letztes Ergebnis">
+      {% if v.running_since %}<span class="badge warn">läuft seit {{ v.running_since|ago|replace('vor ', '') }}</span>
+      {% elif v.last_run %}{{ run_badge(v.last_run.status) }}
+        <span class="small muted">{{ v.last_run.finished_at|ago }}{% if v.last_run.seen %} · {{ v.last_run.moved }}/{{ v.last_run.seen }}{% endif %}</span>
+        {% if v.last_run.status in (RunStatus.ERROR, RunStatus.PARTIAL) and v.last_run.message %}<div class="small text-err">{{ v.last_run.message }}</div>{% endif %}
+      {% else %}<span class="muted">–</span>{% endif %}</td>
+    <td data-label="Letzter Erfolg">{{ r.last_success_at|ago }}{% if v.stale %}<div class="small text-warn">länger als 3 × Intervall!</div>{% endif %}
+      {% if r.consecutive_failures %}<div class="small text-err">{{ r.consecutive_failures }} Fehler in Folge</div>{% endif %}</td>
+    <td data-label="Nächster Lauf">{{ v.next_run|ago if v.next_run else '–' }}</td>
+    <td><form class="inline" method="post" action="/rules/{{ r.id }}/run">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button class="small" {{ 'disabled' if v.running_since }}>Jetzt ausführen</button></form></td>
+  </tr>
+  {% endfor %}
+  </tbody></table></div>
+{% endif %}

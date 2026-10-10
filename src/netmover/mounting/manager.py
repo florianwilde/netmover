@@ -572,7 +572,7 @@ class MountManager:
         self._notify("mount.error", m.name, msg)
         raise MountUnavailable(msg)
 
-    def usage(self, mount_id: int) -> tuple[int, int] | None:
+    def usage(self, mount_id: int, timeout: float | None = None) -> tuple[int, int] | None:
         """(gesamt, frei) in Bytes – nur bei eingehängten Kernel-Mounts."""
         m, _ = self._load(mount_id)
         if not m.type.is_kernel_mount:
@@ -581,7 +581,9 @@ class MountManager:
         if not self.backend.is_mounted(mp):
             return None
         try:
-            st = run_with_timeout(lambda: os.statvfs(mp), self.probe_timeout, f"statvfs:{m.name}")
+            st = run_with_timeout(
+                lambda: os.statvfs(mp), timeout or self.probe_timeout, f"statvfs:{m.name}"
+            )
         except (OSError, OperationTimeout):
             return None
         return st.f_blocks * st.f_frsize, st.f_bavail * st.f_frsize

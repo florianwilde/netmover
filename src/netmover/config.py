@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = Field(default=8080, ge=1, le=65535)
 
+    # Hinter einem Reverse Proxy mit TLS auf true setzen (Cookie nur per HTTPS).
+    cookie_secure: bool = False
+    # IPs, deren X-Forwarded-For/-Proto übernommen wird (Reverse Proxy).
+    forwarded_allow_ips: str = "127.0.0.1"
+    session_hours: int = Field(default=12, ge=1, le=24 * 30)
+
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     log_format: Literal["logfmt", "json"] = "logfmt"
 
@@ -36,6 +42,10 @@ class Settings(BaseSettings):
     @property
     def db_path(self) -> Path:
         return self.data_dir / "netmover.db"
+
+    @property
+    def session_key_path(self) -> Path:
+        return self.data_dir / "session.key"
 
     @property
     def secret_key_path(self) -> Path:

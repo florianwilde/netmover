@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "macros.html" import field, select, check %}
+{% block title %}{{ 'Regel bearbeiten' if rule_id else 'Neue Regel' }}{% endblock %}
+{% block content %}
+<h1>{{ 'Regel bearbeiten' if rule_id else 'Neue Regel' }}</h1>
+{% if errors.get('_') %}<p class="msg error">{{ errors['_'] }}</p>{% endif %}
+{% if not src_mounts %}<p class="msg info">Zuerst eine SMB- oder NFS-Anbindung als Quelle <a href="/mounts/new">anlegen</a>.</p>{% endif %}
+<form class="form" method="post" data-dynamic>
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <fieldset><legend>Allgemein</legend><div class="fields">
+    {{ field('name', 'Name', d.name, errors=errors, attrs='required maxlength="100"') }}
+    {{ field('interval_seconds', 'Intervall (Sekunden)', d.interval_seconds, type='number', errors=errors, attrs='min="10" required', hint='mindestens 10') }}
+    {{ check('enabled', 'Aktiv', d.enabled) }}
+    {{ check('dry_run', 'Nur Probelauf (nichts verändern)', d.dry_run) }}
+  </div></fieldset>
+
+  <fieldset><legend>Quelle</legend><div class="fields">
+    {{ select('src_mount_id', 'Anbindung', src_options, d.src_mount_id or '', errors=errors) }}
+    {{ field('src_subpath', 'Unterordner', d.src_subpath, errors=errors, placeholder='z. B. Scans/Max', hint='relativ zur Freigabe; leer = Wurzel') }}
+    {{ select('pattern_type', 'Filterart', [('glob', 'Glob'), ('regex', 'Regulärer Ausdruck')], d.pattern_type.value, errors=errors) }}
+    {{ field('pattern', 'Filter', d.pattern, errors=errors, hint='Glob: *.pdf;*.jpg (Dateiname, ohne Groß/klein). Regex: gegen relativen Pfad.') }}
+    {{ check('recursive', 'Unterordner einbeziehen (Struktur bleibt erhalten)', d.recursive) }}
+  </div></fieldset>
+
+  <fieldset><legend>Ziel</legend><div class="fields">
+    {{ select('dst_kind', 'Zielart', [('mount', 'Anbindung'), ('local', 'Lokaler Pfad')], d.dst_kind, errors=errors) }}
+    <div data-show-for="dst_kind:mount">{{ select('dst_mount_id', 'Anbindung', dst_options, d.dst_mount_id or '', errors=errors) }}</div>
+    {{ field('dst_path', 'Zielordner', d.dst_path, errors=errors, hint='Anbindung: relativer Unterordner (wird angelegt). Lokal: absoluter Pfad, muss existieren.') }}
+    {{ select('action', 'Aktion', [('move', 'verschieben'), ('copy', 'kopieren (Quelle bleibt)')], d.action.value, errors=errors) }}
+    {{ select('on_collision', 'Wenn Datei existiert', [('rename', 'umbenennen (scan-1.pdf)'), ('skip', 'überspringen'), ('overwrite', 'überschreiben')], d.on_collision.value, errors=errors) }}
+  </div></fieldset>
+
+  <fieldset><legend>Sicherheit und Grenzen</legend><div class="fields">
+    {{ field('stability_seconds', 'Stabilitätsfenster (s)', d.stability_seconds, type='number', errors=errors, attrs='min="0"', hint='Größe und Zeit müssen so lange gleich bleiben') }}
+    {{ field('min_age_seconds', 'Mindestalter (s)', d.min_age_seconds, type='number', errors=errors, attrs='min="0"') }}
+    {{ field('max_size_mb', 'Max. Größe (MB)', d.max_size_mb or '', type='number', errors=errors, hint='leer = unbegrenzt') }}
+    {{ field('op_timeout_seconds', 'Zeitlimit ohne Fortschritt (s)', d.op_timeout_seconds, type='number', errors=errors, attrs='min="10"') }}
+  </div></fieldset>
+
+  <fieldset><legend>Rechte und Quarantäne</legend><div class="fields">
+    {{ field('set_owner', 'Eigentümer setzen', d.set_owner, errors=errors, placeholder='1000:1000', hint='leer = unverändert; auf CIFS wirkungslos') }}
+    {{ field('set_mode', 'Modus setzen', d.set_mode, errors=errors, placeholder='0644', hint='leer = wie Quelle') }}
+    {{ field('quarantine_path', 'Quarantäneordner', d.quarantine_path, errors=errors, placeholder='_quarantaene', hint='relativ zur Quell-Anbindung; leer = keine Quarantäne') }}
+    {{ field('quarantine_after', 'nach Fehlversuchen', d.quarantine_after, type='number', errors=errors, attrs='min="1"') }}
+  </div></fieldset>
+
+  <div class="row"><button class="primary">Speichern</button><a class="btn" href="/rules">Abbrechen</a></div>
+</form>
+{% endblock %}

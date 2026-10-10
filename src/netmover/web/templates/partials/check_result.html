@@ -1,0 +1,20 @@
+{% set step_names = {'mount': 'Einhängen', 'read': 'Lesen', 'write': 'Schreiben', 'connect': 'Verbinden'} %}
+<div class="card stack">
+{% if errors %}
+  <p class="msg error">Eingaben unvollständig:</p>
+  <ul class="tight">{% for k, v in errors.items() %}<li><strong>{{ k }}</strong>: {{ v }}</li>{% endfor %}</ul>
+{% elif report %}
+  <ul class="steps">
+  {% for st in report.steps %}
+    <li><span class="ico {{ 'ok' if st.ok else 'skip' if st.ok is none else 'fail' }}">{{ '✓' if st.ok else '–' if st.ok is none else '✗' }}</span>
+      <strong>{{ step_names.get(st.name, st.name) }}</strong>{% if st.message %}: <span class="{{ 'text-err' if st.ok == false }}">{{ st.message }}</span>{% endif %}</li>
+  {% endfor %}
+  </ul>
+  <div class="small">Geeignet als:
+    {% for role in report.roles %}<span class="badge ok">{{ role.value }}</span> {% else %}<span class="badge err">nichts</span>{% endfor %}</div>
+  {% if report.owner %}<div class="small muted">Testdatei gehörte {{ report.owner }}{% if report.root_squash %} (Root-Squash){% endif %}</div>{% endif %}
+  {% if report.free_bytes is not none %}<div class="small muted">{{ report.free_bytes|bytes }} frei von {{ report.total_bytes|bytes }}</div>{% endif %}
+  {% if report.host_key_fingerprint %}<div class="small">Hostschlüssel: <span class="mono">{{ report.host_key_fingerprint }}</span></div>{% endif %}
+  {% for h in report.hints %}<p class="msg info small">{{ h }}</p>{% endfor %}
+{% endif %}
+</div>
