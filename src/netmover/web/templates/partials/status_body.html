@@ -33,17 +33,19 @@
   <thead><tr><th>Regel</th><th>Letztes Ergebnis</th><th>Letzter Erfolg</th><th>Nächster Lauf</th><th></th></tr></thead>
   <tbody>
   {% for v in rules %}{% set r = v.r %}
-  <tr class="{{ 'warn' if v.stale }}">
+  <tr class="{{ 'warn' if v.stale or r.waiting_since }}">
     <td data-label="Regel"><strong>{{ r.name }}</strong>{% if not r.enabled %} <span class="badge">aus</span>{% endif %}{% if r.dry_run %} <span class="badge warn">Probelauf</span>{% endif %}
       <div class="muted small mono">{{ v.target }}</div></td>
     <td data-label="Letztes Ergebnis">
-      {% if v.running_since %}<span class="badge warn">läuft seit {{ v.running_since|ago|replace('vor ', '') }}</span>
+      {% if r.waiting_since %}<span class="badge warn">wartet seit {{ r.waiting_since|ago|replace('vor ', '') }}</span>
+        <div class="small text-warn">{{ r.waiting_reason }}</div>
+      {% elif v.running_since %}<span class="badge warn">läuft seit {{ v.running_since|ago|replace('vor ', '') }}</span>
       {% elif v.last_run %}{{ run_badge(v.last_run.status) }}
         <span class="small muted">{{ v.last_run.finished_at|ago }}{% if v.last_run.seen %} · {{ v.last_run.moved }}/{{ v.last_run.seen }}{% endif %}</span>
         {% if v.last_run.status in (RunStatus.ERROR, RunStatus.PARTIAL) and v.last_run.message %}<div class="small text-err">{{ v.last_run.message }}</div>{% endif %}
       {% else %}<span class="muted">–</span>{% endif %}</td>
     <td data-label="Letzter Erfolg">{{ r.last_success_at|ago }}{% if v.stale %}<div class="small text-warn">länger als 3 × Intervall!</div>{% endif %}
-      {% if r.consecutive_failures %}<div class="small text-err">{{ r.consecutive_failures }} Fehler in Folge</div>{% endif %}</td>
+      {% if r.consecutive_failures and not r.waiting_since %}<div class="small text-err">{{ r.consecutive_failures }} Fehler in Folge</div>{% endif %}</td>
     <td data-label="Nächster Lauf">{{ v.next_run|ago if v.next_run else '–' }}</td>
     <td><form class="inline" method="post" action="/rules/{{ r.id }}/run">
       <input type="hidden" name="csrf_token" value="{{ csrf }}">

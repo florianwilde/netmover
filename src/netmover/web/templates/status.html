@@ -2,7 +2,14 @@
 {% block title %}Status{% endblock %}
 {% block content %}
 <div class="row spread"><h1>Status</h1>
-  <span class="muted small">aktualisiert sich alle 15 s</span></div>
+  <div class="row"><span class="muted small">aktualisiert sich alle 15 s</span>
+    <form class="inline" method="post" action="/maintenance"
+          {% if not (nav and nav.maintenance) %}data-confirm="Alle geplanten Läufe pausieren?"{% endif %}>
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button class="small">{{ 'Wartungsmodus beenden' if nav and nav.maintenance else 'Wartungsmodus' }}</button>
+    </form></div></div>
+{% if nav and nav.maintenance %}<p class="msg warn"><strong>Wartungsmodus:</strong> Geplante Läufe sind pausiert.
+  „Jetzt ausführen“ geht weiterhin. Für Regeln schlägt <code>/healthz</code> keinen Alarm.</p>{% endif %}
 <div id="status-body" hx-get="/partials/status" hx-trigger="every 15s" hx-swap="innerHTML">
   {% include "partials/status_body.html" %}
 </div>

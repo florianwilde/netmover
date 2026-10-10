@@ -50,7 +50,7 @@ class NetMover:
         self.session_factory = make_session_factory(self.db_engine)
         self.secrets = SecretBox(load_or_create_key(settings.secret_key_path))
         self.backend = backend or make_backend(settings)
-        self.notifier = notifier or Notifier(self.session_factory)
+        self.notifier = notifier or Notifier(self.session_factory, secrets=self.secrets)
         self.mounts = MountManager(
             self.session_factory,
             self.backend,
@@ -93,4 +93,5 @@ class NetMover:
             scheduler_running=self.scheduler.running,
             last_heartbeat=self.scheduler.last_heartbeat,
             service_started=self.started_at,
+            maintenance=load_settings(self.session_factory).maintenance,
         )

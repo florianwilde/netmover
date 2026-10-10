@@ -17,9 +17,37 @@ Zeiten in Ortszeit (Europe/Berlin).
 | 2026-10-10 | 22:45 | 23:00 | 0:15  | –       | Echtes NAS/Paperless anbinden          |
 | 2026-10-10 | 23:31 | 23:58 | 0:27  | –       | Schlüsselverwaltung, Update-Skript, 0.2.x |
 | 2026-10-11 | 00:13 | 00:32 | 0:19  | –       | Menü, Anleitung, Roadmap, Uptime Kuma (0.3.0) |
-| **Summe**  |       |       | **2:36** |      |                                        |
+| 2026-10-11 | 00:31 | 00:50 | 0:19  | –       | Pausieren, Wartungsmodus, E-Mail (0.4.0) |
+| **Summe**  |       |       | **2:55** |      |                                        |
 
 ---
+
+## 2026-10-11 · 00:31–00:50 · Pausieren, Wartungsmodus, E-Mail (0.4.0)
+
+**Erledigt**
+- Wartezustand (`rules.waiting_since/_reason`, Migration 0003), Wartungsmodus,
+  E-Mail (`mail.py`, SMTP), eine Meldung pro Anbindung mit betroffenen Regeln.
+- 0.4.0/0.5.0 aufgeteilt: kleinere Updates, schneller Nutzen.
+- 21 neue Tests (299 gesamt), u. a. SMTP gegen echten Server (aiosmtpd) mit
+  STARTTLS, SSL, falschem Passwort und nicht vertrauenswürdigem Zertifikat.
+
+**Entscheidungen**
+- Warten statt Deaktivieren; kein Fehlerzähler und nur ein Protokolleintrag beim
+  Eintritt; Ende des Wartens automatisch beim nächsten durchkommenden Lauf.
+- Benachrichtigung pro Anbindung (nicht pro Regel) – sonst bei drei Regeln am NAS
+  drei gleiche Meldungen. Lücke geschlossen: Aushängen von außen meldete nichts.
+- Wartungsmodus unterdrückt nur Regel-Alarme, Anbindungen werden weiter geprüft.
+- SMTP prüft Zertifikate immer; für Tests ist nur `mail.tls_context()` ersetzbar.
+
+**Stolpersteine (alle im Testaufbau)**
+- Globales Monkeypatchen von `ssl.create_default_context` traf auch den
+  Testserver → eigene Funktion `tls_context()`.
+- aiosmtpd: `AuthResult(success=False)` ohne `handled=False` schickt keine Antwort →
+  Client hängt bis zum Zeitlimit.
+
+**Migrationen** – 0003 baut `rules` neu; getestet von 0001 und von 0002 mit allen
+verknüpften Tabellen sowie an der befüllten Demo-Datenbank; vor dem Release an einer
+Kopie der Live-Datenbank auf der VM.
 
 ## 2026-10-11 · 00:13–00:32 · Menü, Anleitung, Roadmap, Uptime Kuma (0.3.0)
 

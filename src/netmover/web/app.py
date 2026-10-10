@@ -27,6 +27,7 @@ from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from markupsafe import escape
 from sqlalchemy import func, or_, select
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
@@ -52,6 +53,7 @@ from netmover.db import session_scope
 from netmover.keys import delete_key, generate_key, import_key, list_keys, rename_key
 from netmover.kuma import push as kuma_push
 from netmover.logging_setup import event, get_logger
+from netmover.mail import SECURITY_MODES, MailConfigError, parse_recipients, valid_address
 from netmover.models import (
     CollisionPolicy,
     Credential,
@@ -185,6 +187,7 @@ class NavState:
     keys: int
     rules: int
     rules_active: int
+    maintenance: bool = False
 
 
 def _nav_state(request: Request) -> NavState | None:
@@ -208,6 +211,7 @@ def _nav_state(request: Request) -> NavState | None:
         keys=keys or 0,
         rules=len(rules),
         rules_active=sum(1 for (en,) in rules if en),
+        maintenance=health.maintenance,
     )
 
 
@@ -457,6 +461,23 @@ async def status_page(request: Request) -> Response:
 @protected.get("/partials/status", response_class=HTMLResponse)
 async def status_partial(request: Request) -> Response:
     return render(request, "partials/status_body.html", **await _status_context(request))
+
+
+@protected.post("/maintenance")
+async def toggle_maintenance(request: Request) -> Response:
+    state = nm(request)
+    cfg = load_settings(state.session_factory)
+    cfg.maintenance = not cfg.maintenance
+    save_settings(state.session_factory, cfg)
+    event(log, "maintenance", enabled=cfg.maintenance)
+    flash(
+        request,
+        "Wartungsmodus eingeschaltet – geplante Läufe sind pausiert."
+        if cfg.maintenance
+        else "Wartungsmodus beendet – Regeln laufen wieder nach Plan.",
+        "info",
+    )
+    return redirect("/")
 
 
 @protected.post("/rules/{rule_id}/run")
@@ -1000,6 +1021,32 @@ async def settings_save(request: Request) -> Response:
         if url and not url.startswith(("http://", "https://")):
             errors["webhook_url"] = "URL muss mit http:// oder https:// beginnen."
         cfg.webhook_url = url
+    cfg.email_enabled = form.get("email_enabled") == "on"
+    cfg.smtp_host = (form.get("smtp_host") or "").strip()
+    cfg.smtp_user = (form.get("smtp_user") or "").strip()
+    cfg.smtp_from = (form.get("smtp_from") or "").strip()
+    cfg.smtp_to = (form.get("smtp_to") or "").strip()
+    cfg.smtp_security = form.get("smtp_security") or "starttls"
+    try:
+        cfg.smtp_port = int(form.get("smtp_port") or 587)
+        if not 1 <= cfg.smtp_port <= 65535:
+            raise ValueError
+    except ValueError:
+        errors["smtp_port"] = "Port zwischen 1 und 65535."
+    if cfg.smtp_security not in SECURITY_MODES:
+        errors["smtp_security"] = "Ungültig."
+    if cfg.smtp_host and not re.fullmatch(r"[A-Za-z0-9.-]+", cfg.smtp_host):
+        errors["smtp_host"] = "Hostname oder IP-Adresse."
+    if cfg.smtp_from and not valid_address(cfg.smtp_from):
+        errors["smtp_from"] = "Keine gültige E-Mail-Adresse."
+    try:
+        parse_recipients(cfg.smtp_to)
+    except MailConfigError as exc:
+        errors["smtp_to"] = str(exc)
+    if cfg.email_enabled and not (cfg.smtp_host and cfg.smtp_from and cfg.smtp_to):
+        errors["smtp_host"] = "Für E-Mail werden Server, Absender und Empfänger benötigt."
+    if form.get("smtp_password"):
+        cfg.smtp_password_enc = state.secrets.encrypt(form["smtp_password"])
     kuma = (form.get("kuma_push_url") or "").strip()
     if kuma != auth_mask(cfg.kuma_push_url):
         if kuma and not kuma.startswith(("http://", "https://")):
@@ -1048,6 +1095,25 @@ async def settings_webhook_test(request: Request) -> Response:
     except Exception as exc:
         return HTMLResponse(f'<p class="msg error">Fehlgeschlagen: {type(exc).__name__}</p>')
     return HTMLResponse('<p class="msg ok">Testnachricht gesendet.</p>')
+
+
+@protected.post("/settings/mail-test", response_class=HTMLResponse)
+async def settings_mail_test(request: Request) -> Response:
+    state = nm(request)
+    cfg = load_settings(state.session_factory)
+    if not (cfg.smtp_host and cfg.smtp_from and cfg.smtp_to):
+        return HTMLResponse('<p class="msg error">Server, Absender und Empfänger speichern.</p>')
+    try:
+        await run_in_threadpool(
+            state.notifier.send_mail_now,
+            "NetMover: Testnachricht",
+            "Die E-Mail-Benachrichtigung funktioniert.",
+            cfg,
+        )
+    except Exception as exc:
+        detail = escape(str(exc))[:300] or type(exc).__name__
+        return HTMLResponse(f'<p class="msg error">Fehlgeschlagen: {detail}</p>')
+    return HTMLResponse(f'<p class="msg ok">Gesendet an {escape(cfg.smtp_to)}.</p>')
 
 
 @protected.post("/settings/kuma-test", response_class=HTMLResponse)

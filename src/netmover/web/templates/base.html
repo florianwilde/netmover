@@ -23,6 +23,7 @@
   {% if nav %}
   <a class="health {{ 'ok' if nav.healthy else 'bad' }}" href="/" title="Gesundheitszustand">
     <span class="dot"></span>{{ 'Alles in Ordnung' if nav.healthy else (nav.problems ~ (' Problem' if nav.problems == 1 else ' Probleme')) }}</a>
+  {% if nav.maintenance %}<a class="health warn" href="/" title="Geplante Läufe sind pausiert"><span class="dot"></span>Wartungsmodus</a>{% endif %}
   {% endif %}
   <span class="spacer"></span>
   {% if help_anchor %}<a class="help-link" href="/help#{{ help_anchor }}">{{ icon('help') }}<span>Hilfe zu dieser Seite</span></a>{% endif %}

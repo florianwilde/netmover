@@ -36,6 +36,7 @@ dev = [
     "types-paramiko",
     "types-Markdown",
     "shellcheck-py",
+    "aiosmtpd",
 ]
 
 [project.scripts]

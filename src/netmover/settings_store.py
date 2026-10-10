@@ -35,6 +35,17 @@ class AppSettings:
     webhook_template: str = DEFAULT_TEMPLATE
     webhook_content_type: str = "application/json"
     kuma_push_url: str = ""
+    # Wartungsmodus: geplante Läufe pausiert, kein Alarm für Regeln
+    maintenance: bool = False
+    # E-Mail (SMTP); Passwort Fernet-verschlüsselt
+    email_enabled: bool = False
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_security: str = "starttls"
+    smtp_user: str = ""
+    smtp_password_enc: str = ""
+    smtp_from: str = ""
+    smtp_to: str = ""
 
 
 _PREFIX = "app."

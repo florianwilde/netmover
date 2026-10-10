@@ -8,6 +8,28 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 
 ## [Unreleased]
 
+## [0.4.0] – 2026-10-11
+
+### Hinzugefügt
+- **Automatisch pausieren und fortsetzen:** Ist Quelle oder Ziel nicht erreichbar,
+  wartet die Regel („wartet seit …“ mit Grund) – ein Protokolleintrag statt eines
+  Fehlers alle 30 s, „Fehler in Folge“ zählt nicht hoch. Sobald die Anbindung zurück
+  ist, läuft die Regel von selbst weiter („Fortgesetzt nach … Wartezeit“).
+  Migration 0003: `rules.waiting_since`, `rules.waiting_reason`.
+- **Wartungsmodus** (Knopf auf der Statusseite): alle geplanten Läufe pausiert,
+  „Jetzt ausführen“ geht weiter, kein Alarm für Regeln in `/healthz`; gelber Hinweis
+  in der Kopfzeile.
+- **E-Mail-Benachrichtigung** per SMTP (STARTTLS, SSL/TLS oder ohne für interne
+  Relays; Zertifikate werden geprüft), Passwort verschlüsselt, mehrere Empfänger,
+  Test-Knopf. Webhook und E-Mail lassen sich gleichzeitig nutzen.
+
+### Geändert
+- Ausfälle von Anbindungen werden **einmal pro Anbindung** gemeldet, mit der Liste
+  der betroffenen Regeln, und mit Entwarnung, wenn sie zurück sind – auch wenn eine
+  Anbindung von außen ausgehängt wurde (vorher keine Meldung).
+- Einstellungen neu gegliedert: Benachrichtigungen · Webhook · E-Mail · Überwachung.
+- `/healthz`: Eine wartende Regel ist ein Problem (mit Grund); im Wartungsmodus nicht.
+
 ## [0.3.0] – 2026-10-11
 
 ### Hinzugefügt
@@ -191,7 +213,8 @@ Erste Version.
 - Löschen von Zugangsdaten, die noch von einem Mount benutzt werden, trennt den
   Mount nicht mehr stillschweigend ab, sondern wird von der Datenbank abgelehnt.
 
-[Unreleased]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.3.0...HEAD
+[Unreleased]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.4.0...HEAD
+[0.4.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.3.0...v0.4.0
 [0.3.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.2.1...v0.3.0
 [0.2.1]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.2.0...v0.2.1
 [0.2.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.1.1...v0.2.0

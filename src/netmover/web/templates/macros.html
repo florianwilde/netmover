@@ -21,8 +21,8 @@
 </div>
 {%- endmacro %}
 
-{% macro check(name, label, checked, hint='') -%}
-<div class="field check">
+{% macro check(name, label, checked, hint='', wide=false) -%}
+<div class="field check{{ ' wide' if wide }}">
   <input id="f-{{ name }}" type="checkbox" name="{{ name }}" {{ 'checked' if checked }}>
   <label for="f-{{ name }}">{{ label }}</label>
   {% if hint %}<span class="hint">{{ hint }}</span>{% endif %}

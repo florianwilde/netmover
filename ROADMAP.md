@@ -6,18 +6,12 @@ stehen mit Version im [CHANGELOG](CHANGELOG.md); Details zu Entscheidungen im
 
 Legende: ✅ erledigt · 🔨 in Arbeit · 📋 geplant · 💡 Idee (noch nicht entschieden)
 
-## In Arbeit
-
-Gerade nichts – als Nächstes kommt 0.4.0.
-
-## Als Nächstes (0.4.0)
+## In Arbeit (0.5.0)
 
 | Status | Thema | Warum |
 |---|---|---|
-| 📋 | **SFTP als Quelle**: Scan, Stabilitätsprüfung und Löschen der Quelle über SFTP, mit denselben Garantien wie bei SMB/NFS | Quellen, die nur per SSH erreichbar sind (Wunsch aus dem Praxisbetrieb) |
-| 📋 | **Gespeicherte Zugangsdaten** für SMB und SFTP-Passwörter, zusammen mit den SSH-Schlüsseln auf einer Seite „Zugangsdaten“ | Mehrere Freigaben mit demselben NAS-Benutzer an einer Stelle pflegen |
-| 📋 | **Automatisch pausieren und fortsetzen**: Ist Quelle oder Ziel nicht erreichbar, wechselt die Regel in „wartet auf Anbindung X“ – ein Protokolleintrag und eine Benachrichtigung statt eines Fehlers alle 30 s; fortsetzen von selbst, sobald die Anbindung zurück ist. Dazu manuelles Pausieren (Wartungsmodus) | Weniger Rauschen im Protokoll und in Benachrichtigungen, kein Handgriff nach NAS-Neustarts |
-| 📋 | **E-Mail-Benachrichtigung** (SMTP mit STARTTLS/SSL, verschlüsseltes Passwort, mehrere Empfänger) zusätzlich zum Webhook | Benachrichtigung ohne eigenen Webhook-Dienst |
+| 🔨 | **SFTP als Quelle**: Scan, Stabilitätsprüfung und Löschen der Quelle über SFTP, mit denselben Garantien wie bei SMB/NFS | Quellen, die nur per SSH erreichbar sind |
+| 🔨 | **Gespeicherte Zugangsdaten** für SMB und SFTP-Passwörter, zusammen mit den SSH-Schlüsseln auf einer Seite „Zugangsdaten“ | Mehrere Freigaben mit demselben NAS-Benutzer an einer Stelle pflegen |
 
 ## Geplant
 
@@ -41,6 +35,7 @@ Gerade nichts – als Nächstes kommt 0.4.0.
 
 | Version | Thema |
 |---|---|
+| 0.4.0 | Automatisch pausieren/fortsetzen bei nicht erreichbaren Anbindungen; Wartungsmodus; E-Mail-Benachrichtigung; eine Meldung pro ausgefallener Anbindung |
 | 0.3.0 | Neues Menü (gruppierte Seitenleiste, Statusampel, Handy-Menü); Anleitung im Repo und als Hilfe-Seite; Roadmap; Uptime Kuma (Einzel-Endpunkte, Push-Monitor) |
 | 0.2.1 | Migrationen in einer Transaktion und ohne Fremdschlüsselfehler auf befüllten Datenbanken |
 | 0.2.0 | Schlüsselverwaltung für SFTP; `netmover-update` mit Sicherung; Installation als Git-Klon |

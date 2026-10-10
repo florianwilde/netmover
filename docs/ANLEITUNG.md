@@ -9,7 +9,7 @@ stehen im [README](../README.md).
 
 **Inhalt:** [Begriffe](#begriffe) · [Erste Anmeldung](#erste-anmeldung) ·
 [Anbindungen](#anbindungen) · [Schlüssel](#schluessel) · [Regeln](#regeln) ·
-[Probelauf](#probelauf) · [Status](#status) · [Protokoll](#protokoll) ·
+[Probelauf](#probelauf) · [Status](#status) · [Wartungsmodus](#wartungsmodus) · [Protokoll](#protokoll) ·
 [Einstellungen](#einstellungen) · [Uptime Kuma](#uptime-kuma) · [Beispiele](#beispiele) · [Häufige Fragen](#fragen)
 
 ## Die vier Begriffe {#begriffe}
@@ -99,6 +99,8 @@ Server neu aufgesetzt: bei der Anbindung **Hostschlüssel zurücksetzen** und ne
 
 Regeln, deren Anbindung nicht verfügbar ist, **brechen ab, ohne etwas anzufassen**.
 Es wird nie in ein leeres Verzeichnis geschrieben, nur weil die Freigabe fehlt.
+Solche Regeln **warten** automatisch, bis die Anbindung zurück ist (siehe
+[Status](#status)), und laufen dann von selbst weiter.
 
 ## Schlüssel {#schluessel}
 
@@ -202,6 +204,28 @@ Eine Regel wird **gelb**, wenn ihr letzter erfolgreicher Lauf länger als das
 Dreifache ihres Intervalls zurückliegt. So fällt auf, wenn NetMover still ausfällt
 – statt dass es aussieht, als gäbe es nichts zu tun.
 
+### Regel wartet auf eine Anbindung {#wartet}
+
+Ist die Quelle oder das Ziel einer Regel nicht erreichbar (NAS neu gestartet, Server
+aus), **pausiert die Regel automatisch**: Sie zeigt „wartet seit …“ mit dem Grund.
+
+- Im Protokoll steht **ein** Eintrag „Pausiert, bis die Anbindung zurück ist“ – nicht
+  alle 30 Sekunden ein neuer Fehler.
+- Es kommt **eine** Benachrichtigung pro Anbindung, mit der Liste der betroffenen
+  Regeln.
+- Sobald die Anbindung zurück ist, **läuft die Regel von selbst weiter**; der nächste
+  Lauf vermerkt „Fortgesetzt nach … Wartezeit“, und es kommt eine Entwarnung.
+
+Man muss also nach einem NAS-Neustart nichts tun.
+
+### Wartungsmodus {#wartungsmodus}
+
+Der Knopf **Wartungsmodus** auf der Statusseite pausiert **alle geplanten Läufe** –
+etwa während eines NAS-Updates. Oben erscheint dann gelb „Wartungsmodus“. „Jetzt
+ausführen“ geht weiterhin. Für Regeln meldet `/healthz` in dieser Zeit keinen Alarm
+(Anbindungen werden weiter geprüft). Mit **Wartungsmodus beenden** läuft alles
+wieder nach Plan.
+
 ## Protokoll {#protokoll}
 
 *Automatisierung → Protokoll* zeigt jeden Lauf: Zeitpunkt, Dauer, gesehen /
@@ -218,7 +242,8 @@ Häufige Einträge:
 | *Quelle hat sich während der Übertragung geändert* | Abgebrochen, nichts gelöscht; nächster Lauf versucht es erneut |
 | *n bereits übertragen* | Kopiermodus: diese Dateiversionen sind schon kopiert |
 | *Termin übersprungen – voriger Lauf läuft noch* | Ein Lauf dauert länger als das Intervall |
-| *nicht eingehängt – Lauf abgebrochen, nichts angefasst* | Anbindung fehlt; siehe [Zustände](#anbindung-zustaende) |
+| *Pausiert, bis die Anbindung zurück ist* | Quelle oder Ziel nicht erreichbar; die Regel wartet, siehe [Regel wartet](#wartet) |
+| *Fortgesetzt nach … Wartezeit* | Die Anbindung ist zurück, die Regel läuft wieder |
 
 Protokolle werden nach der eingestellten Frist gelöscht (Standard 30 Tage).
 
@@ -228,15 +253,31 @@ Protokolle werden nach der eingestellten Frist gelöscht (Standard 30 Tage).
 
 ### Benachrichtigungen {#benachrichtigungen}
 
-NetMover kann bei Fehlern eine Nachricht an einen **Webhook** schicken – z. B. an
-ntfy, Gotify oder Home Assistant.
+NetMover meldet Probleme per **E-Mail** und/oder an einen **Webhook** (z. B. ntfy,
+Gotify, Home Assistant). Beides lässt sich gleichzeitig nutzen.
 
 | Feld | Bedeutung |
 |---|---|
-| **Benachrichtigen** | nie / bei jedem fehlgeschlagenen Lauf / erst nach N Fehlschlägen in Folge |
+| **Benachrichtigen** | nie / bei jedem fehlgeschlagenen Lauf / erst nach N Fehlschlägen in Folge. Fällt eine **Anbindung** aus, kommt die Meldung immer sofort (einmal, mit den betroffenen Regeln). |
+| **Entwarnung** | Nachricht, wenn eine Regel oder Anbindung wieder funktioniert |
+
+**E-Mail:**
+
+| Feld | Bedeutung |
+|---|---|
+| **SMTP-Server, Port, Verschlüsselung** | z. B. `smtp.example.org`, `587` mit STARTTLS oder `465` mit SSL/TLS. „keine“ nur für interne Relays. Zertifikate werden immer geprüft. |
+| **Benutzer, Passwort** | Anmeldung am SMTP-Server; leer = ohne Anmeldung. Das Passwort wird verschlüsselt gespeichert und nie angezeigt. |
+| **Absender, Empfänger** | Empfänger mit Komma getrennt |
+
+*Test-E-Mail senden* prüft die gespeicherten Einstellungen und zeigt bei Fehlern die
+Antwort des Servers.
+
+**Webhook:**
+
+| Feld | Bedeutung |
+|---|---|
 | **Webhook-URL** | Adresse des Empfängers. Wird nur gekürzt angezeigt, weil sie oft ein Token enthält. |
 | **Content-Type, Vorlage** | Format der Nachricht; Platzhalter `$title`, `$message`, `$rule`, `$event`, `$time`, `$host` |
-| **Entwarnung** | Nachricht, wenn eine Regel oder Anbindung wieder funktioniert |
 
 Beispiele: ntfy → URL `https://ntfy.sh/<thema>`, Content-Type `text/plain`, Vorlage
 `$title: $message`. Gotify → URL `https://gotify.lan/message?token=…`, Content-Type
@@ -315,7 +356,11 @@ bei regulären Ausdrücken nicht), Datei wird noch geschrieben oder ist größer
 
 **Die Anbindung zeigt „Fehler“.** – Die Meldung darunter nennt die Ursache und meist
 die Abhilfe. Ist das NAS nur neu gestartet, hängt NetMover die Freigabe innerhalb
-einer Minute selbst wieder ein.
+einer Minute selbst wieder ein; die Regeln warten so lange und laufen dann weiter.
+
+**Ich mache gleich ein NAS-Update.** – Vorher auf der Statusseite *Wartungsmodus*
+einschalten, danach wieder beenden. Nötig ist es nicht (die Regeln warten ohnehin
+von selbst), aber so gibt es keine Alarme.
 
 **„mount error(95): Operation not supported“** – NAS und NetMover finden keine
 gemeinsame SMB-Version. Am NAS das maximale SMB-Protokoll auf SMB3 stellen

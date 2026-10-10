@@ -22,6 +22,8 @@
     </div>
   </div>
   <div class="muted small mono">{{ v.target }} · Filter {{ r.pattern }}{{ ' (rekursiv)' if r.recursive }}</div>
+  {% if r.waiting_since %}<p class="msg warn small">Wartet seit {{ r.waiting_since|localdt }} ({{ r.waiting_since|ago }}) – {{ r.waiting_reason }}
+    Die Regel läuft von selbst weiter, sobald die Anbindung zurück ist.</p>{% endif %}
   <div class="small">Letzter Lauf: {% if v.running_since %}<span class="badge warn">läuft seit {{ v.running_since|ago|replace('vor ', '') }}</span>{% elif v.last_run %}{{ run_badge(v.last_run.status) }} {{ v.last_run.finished_at|ago }}{% else %}–{% endif %}
     · letzter Erfolg: <span class="{{ 'text-warn' if v.stale }}">{{ r.last_success_at|ago }}</span>
     · nächster: {{ v.next_run|ago if v.next_run else '–' }}</div>
