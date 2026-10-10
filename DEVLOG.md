@@ -12,9 +12,41 @@ Zeiten in Ortszeit (Europe/Berlin).
 | 2026-10-10 | 18:53 | 19:07 | 0:14  | 3       | Mover-Logik                            |
 | 2026-10-10 | 19:10 | 19:17 | 0:07  | 4       | Scheduler, Protokoll, Benachrichtigung |
 | 2026-10-10 | 19:18 | 19:34 | 0:16  | 5       | Weboberfläche und Anmeldung            |
-| **Summe**  |       |       | **0:56** |      |                                        |
+| 2026-10-10 | 19:40 | 19:50 | 0:10  | 6       | Deployment, README, Release 0.1.0      |
+| **Summe**  |       |       | **1:06** |      |                                        |
 
 ---
+
+## 2026-10-10 · 19:40–19:50 · Schritt 6: Deployment, README, Release 0.1.0
+
+**Erledigt**
+- `deploy/netmover.service`, `deploy/netmover.env`, `deploy/install.sh`,
+  `Dockerfile` (python:3.12-slim-trixie, mehrstufig), `compose.yml`, `.dockerignore`.
+- README vollständig; `LICENSE` (MIT, wie seit Schritt 1 in `pyproject.toml`).
+- Version 0.1.0, Changelog-Abschnitt, Tag `v0.1.0`.
+
+**Geprüft**
+- Wheel enthält Templates, statische Dateien und Migrationen.
+- Docker-Image gebaut; Container startet, `/healthz` = 200, `mount.cifs` 7.4 und
+  `mount.nfs` vorhanden. **Propagation getestet:** tmpfs im Container unter
+  `/mnt/netmover` eingehängt → mit `rshared` auf dem Host sichtbar, ohne nicht.
+- `systemd-analyze verify` der Unit ohne Beanstandung. Ein echter Start der Unit
+  als root (insb. `MountFlags=shared` mit `ProtectSystem`) war hier nicht möglich →
+  beim ersten Einsatz mit `findmnt -R /mnt/netmover` prüfen.
+
+**Entscheidungen**
+- Paperless-ngx-Consumer geprüft: nutzt `watchfiles` (`Change.added`) plus
+  5-Minuten-Rescan – erkennt also auch per `link()` erzeugte Dateien. Für Watcher,
+  die nur `IN_MOVED_TO`/`IN_CLOSE_WRITE` kennen, trotzdem auf
+  `renameat2(RENAME_NOREPLACE)` umgestellt (entspricht der Vorgabe `os.replace`,
+  ohne die Garantie „nie überschreiben“ aufzugeben).
+- Härtung der Unit bewusst zurückhaltend (keine `CapabilityBoundingSet`, kein
+  `ProtectKernelModules`): ungetestete Einschränkungen könnten Mounten brechen
+  (z. B. NFS mit privilegiertem Quellport, Modul-Autoload für cifs).
+- SFTP-Schlüssel im README per `restrict,command="…/sftp-server"` auf SFTP beschränkt.
+
+**Offen für später**
+- Erster Praxistest auf der Ziel-VM mit echtem Synology-NAS und Paperless-LXC.
 
 ## 2026-10-10 · 19:18–19:34 · Schritt 5: Weboberfläche und Anmeldung
 

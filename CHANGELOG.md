@@ -8,6 +8,10 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 
 ## [Unreleased]
 
+## [0.1.0] – 2026-10-10
+
+Erste Version.
+
 ### Hinzugefügt
 - Projektgerüst (Python ≥ 3.12, FastAPI-Stack, src-Layout, ruff, mypy strict, pytest).
 - Datenmodell mit SQLAlchemy 2.x: `credentials`, `mounts`, `rules`, `runs`,
@@ -67,6 +71,13 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
   auch für Anbindungen, deren Wiederherstellung scheitert.
 - Dienststart: Migration → Schlüssel → Anbindungen wiederherstellen → Scheduler;
   beim Beenden werden Mounts nicht ausgehängt.
+- Endname lokal per `renameat2(RENAME_NOREPLACE)`: echtes `rename` (Watcher sehen
+  `IN_MOVED_TO`), trotzdem nie überschreibend; Rückfall auf `link` + `unlink`.
+- Deployment: systemd-Unit (`ProtectSystem=full`, `MountFlags=shared`),
+  Installationsskript für Debian 13, `Dockerfile` und `compose.yml` mit
+  `rshared`-Propagation.
+- README mit Installation, Synology→Paperless-Beispiel (SMB-Quelle, SFTP-Ziel),
+  Docker, Reverse Proxy, Konfiguration, Fehlersuche und Sicherheitshinweisen.
 - Weboberfläche (FastAPI, Jinja2, HTMX ohne Build-Schritt, handyfähig, Hell/Dunkel):
   Status, Anbindungen, Regeln, Protokoll, Einstellungen.
 - Ersteinrichtung mit Pflicht-Passwort (≥ 10 Zeichen) und einmaligem
@@ -87,3 +98,6 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
   Session stand (Session erkennt nur Neuzuweisungen als Änderung).
 - Löschen von Zugangsdaten, die noch von einem Mount benutzt werden, trennt den
   Mount nicht mehr stillschweigend ab, sondern wird von der Datenbank abgelehnt.
+
+[Unreleased]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.1.0...HEAD
+[0.1.0]: https://git.wilde-server.de/florian.wilde/netmover/releases/tag/v0.1.0
