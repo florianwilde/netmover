@@ -367,3 +367,121 @@ def test_usage(
     manager.mount(mid)
     usage = manager.usage(mid)
     assert usage is not None and usage[0] >= usage[1] > 0
+
+
+# -- Praxisbefund: NAS-Neustart dauert länger als die Wiederherstellung ----------------------
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+@pytest.fixture
+def clock() -> Clock:
+    return Clock()
+
+
+@pytest.fixture
+def retry_manager(
+    session_factory: sessionmaker[Session],
+    fake_backend: FakeMountBackend,
+    secretbox: object,
+    mount_base: Path,
+    notifications: list[tuple[str, str, str]],
+    clock: Clock,
+) -> MountManager:
+    return MountManager(
+        session_factory,
+        fake_backend,
+        secretbox,
+        mount_base,  # type: ignore[arg-type]
+        probe_timeout=0.5,
+        recover_backoff=(0, 0, 0),
+        sleep=lambda _: None,
+        notifier=lambda *a: notifications.append(a),
+        retry_interval=60,
+        clock=clock,
+    )
+
+
+def test_failed_recovery_retries_every_interval_until_nas_is_back(
+    retry_manager: MountManager,
+    fake_backend: FakeMountBackend,
+    make_mount: MountFactory,
+    session_factory: sessionmaker[Session],
+    notifications: list[tuple[str, str, str]],
+    clock: Clock,
+) -> None:
+    fake_backend.export("nas", "scans")
+    mid = make_mount()
+    retry_manager.mount(mid)
+    mp = retry_manager.mountpoint_for("scans")
+    fake_backend.inject_fault(mp, errno.ESTALE)
+    fake_backend.fail_next_mount(times=3)  # NAS startet neu
+    with pytest.raises(MountUnavailable, match="alle 60 s"):
+        retry_manager.check_alive(mid)
+    assert not fake_backend.is_mounted(mp)
+
+    mounts_before = sum(1 for c in fake_backend.calls if c.action == "mount")
+    clock.now += 30  # zu früh: kein Versuch, Lauf abgebrochen
+    with pytest.raises(MountUnavailable, match="in 30 s"):
+        retry_manager.check_alive(mid)
+    assert sum(1 for c in fake_backend.calls if c.action == "mount") == mounts_before
+
+    clock.now += 30  # NAS noch nicht zurück
+    fake_backend.fail_next_mount()
+    with pytest.raises(MountUnavailable, match="weiterhin nicht verfügbar"):
+        retry_manager.check_alive(mid)
+
+    clock.now += 60  # NAS wieder da
+    assert retry_manager.check_alive(mid) == mp
+    assert fake_backend.is_mounted(mp)
+    assert _state(session_factory, mid).state is MountState.MOUNTED
+    assert notifications[-1][0] == "mount.recovered"
+
+
+def test_no_retry_without_auto_mount(
+    retry_manager: MountManager,
+    fake_backend: FakeMountBackend,
+    make_mount: MountFactory,
+    clock: Clock,
+) -> None:
+    fake_backend.export("nas", "scans")
+    mid = make_mount(auto_mount=False)
+    retry_manager.mount(mid)
+    fake_backend.inject_fault(retry_manager.mountpoint_for("scans"), errno.ESTALE)
+    fake_backend.fail_next_mount(times=3)
+    with pytest.raises(MountUnavailable):
+        retry_manager.check_alive(mid)
+    clock.now += 600
+    with pytest.raises(MountUnavailable, match="nicht eingehängt"):
+        retry_manager.check_alive(mid)
+
+
+def test_externally_unmounted_is_still_never_remounted(
+    retry_manager: MountManager,
+    fake_backend: FakeMountBackend,
+    make_mount: MountFactory,
+    clock: Clock,
+) -> None:
+    fake_backend.export("nas", "scans")
+    mid = make_mount()
+    retry_manager.mount(mid)
+    fake_backend.vanish(retry_manager.mountpoint_for("scans"))
+    clock.now += 600
+    with pytest.raises(MountUnavailable, match="nicht eingehängt"):
+        retry_manager.check_alive(mid)
+    assert [c.action for c in fake_backend.calls] == ["mount"]
+
+
+def test_hint_text_is_not_redacted() -> None:
+    from netmover.mounting.manager import _redact_output
+
+    msg = "mount error(13): Permission denied falsch\n→ Benutzername/Passwort falsch oder …"
+    out = _redact_output(msg, ["falsch"])
+    assert out.startswith("mount error(13): Permission denied ••••••")
+    assert out.endswith("→ Benutzername/Passwort falsch oder …")

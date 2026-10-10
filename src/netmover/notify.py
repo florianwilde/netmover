@@ -125,4 +125,9 @@ class Notifier:
 
     def mount_event(self, kind: str, mount: str, message: str) -> None:
         """Passt zur ``Notifier``-Signatur des :class:`MountManager`."""
-        self.send(Notification(kind, f"NetMover: Anbindung „{mount}“ gestört", message))
+        title = (
+            f"NetMover: Anbindung „{mount}“ wieder verfügbar"
+            if kind == "mount.recovered"
+            else f"NetMover: Anbindung „{mount}“ gestört"
+        )
+        self.send(Notification(kind, title, message))

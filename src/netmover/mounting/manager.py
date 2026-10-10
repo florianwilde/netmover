@@ -15,7 +15,9 @@ Fallstricke:
 
 from __future__ import annotations
 
+import contextlib
 import errno
+import math
 import os
 import threading
 import time
@@ -104,6 +106,13 @@ class RestoreResult:
     message: str
 
 
+def _redact_output(message: str, secrets: Sequence[str]) -> str:
+    """Schwärzt nur die Ausgabe von ``mount``, nicht den angehängten Hinweistext
+    (sonst würde z. B. das Passwort „falsch“ auch im Hinweis geschwärzt)."""
+    output, sep, hint = message.partition("\n→ ")
+    return redact(output, secrets) + sep + hint
+
+
 def build_spec(cfg: MountConfig, mountpoint: Path, cred: CredentialData | None) -> MountSpec:
     """Baut den ``mount``-Aufruf. Validiert erneut (Verteidigung in der Tiefe) –
     auch Daten aus der Datenbank laufen hier noch einmal durch die Prüfung."""
@@ -166,6 +175,8 @@ class MountManager:
         sleep: Callable[[float], None] = time.sleep,
         euid: Callable[[], int] = os.geteuid,
         notifier: Notifier | None = None,
+        retry_interval: float = 60,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.session_factory = session_factory
         self.backend = backend
@@ -177,6 +188,12 @@ class MountManager:
         self._sleep = sleep
         self._euid = euid
         self._notifier = notifier
+        self.retry_interval = retry_interval
+        self._clock = clock
+        # Mounts, die NetMover nach gescheiterter Wiederherstellung selbst ausgehängt
+        # hat: nächster erlaubter Versuch (monotone Zeit). Nur diese werden
+        # automatisch neu eingehängt – von außen ausgehängte nie (Fallstrick 2).
+        self._retry_at: dict[int, float] = {}
         self._locks: dict[int, threading.RLock] = {}
         self._locks_guard = threading.Lock()
 
@@ -267,6 +284,7 @@ class MountManager:
 
     def mount(self, mount_id: int) -> None:
         with self._lock(mount_id):
+            self._retry_at.pop(mount_id, None)
             m, cred = self._load(mount_id)
             if not m.type.is_kernel_mount:
                 raise MountError("SFTP-Anbindungen werden nicht eingehängt, nur getestet")
@@ -292,6 +310,7 @@ class MountManager:
 
     def unmount(self, mount_id: int) -> None:
         with self._lock(mount_id):
+            self._retry_at.pop(mount_id, None)
             m, _ = self._load(mount_id)
             if not m.type.is_kernel_mount:
                 self._set_state(mount_id, MountState.UNMOUNTED)
@@ -391,7 +410,7 @@ class MountManager:
                 self.backend.mount(build_spec(cfg, temp, cred), timeout=self.mount_timeout)
             except (MountError, ValidationError) as exc:
                 self._remove_mountpoint(temp)
-                report.step("mount", False, redact(str(exc), secrets))
+                report.step("mount", False, _redact_output(str(exc), secrets))
                 report.step("read", None)
                 report.step("write", None)
                 return report
@@ -501,6 +520,9 @@ class MountManager:
                 return None
             mp = self.mountpoint_for(m.slug)
             if not self.backend.is_mounted(mp):
+                if mount_id in self._retry_at:
+                    self._retry_mount(mount_id, m, cred, mp)
+                    return mp
                 msg = f"„{m.name}“ ist nicht eingehängt – Lauf abgebrochen, nichts angefasst."
                 self._set_state(mount_id, MountState.ERROR, msg)
                 raise MountUnavailable(msg)
@@ -568,9 +590,44 @@ class MountManager:
             f"„{m.name}“ gestört ({reason}); Neu-Einhängen nach "
             f"{len(self.recover_backoff)} Versuchen gescheitert: {last}"
         )
+        if m.auto_mount:
+            self._retry_at[mount_id] = self._clock() + self.retry_interval
+            msg += f"\n→ Neuer Versuch automatisch alle {self.retry_interval:g} s."
         self._set_state(mount_id, MountState.ERROR, msg)
         self._notify("mount.error", m.name, msg)
         raise MountUnavailable(msg)
+
+    def _retry_mount(self, mount_id: int, m: Mount, cred: CredentialData | None, mp: Path) -> None:
+        """Ein Versuch, einen von NetMover selbst ausgehängten Mount zurückzuholen –
+        höchstens einmal pro ``retry_interval``, damit kein Lauf alle 10 s hängt."""
+        wait = self._retry_at[mount_id] - self._clock()
+        if wait > 0:
+            raise MountUnavailable(
+                f"„{m.name}“ nicht verfügbar – nächster Versuch, neu einzuhängen, "
+                f"in {math.ceil(wait)} s. Lauf abgebrochen, nichts angefasst."
+            )
+        try:
+            self._prepare_mountpoint(mp)
+            self.backend.mount(
+                build_spec(MountConfig.from_model(m), mp, cred), timeout=self.mount_timeout
+            )
+            self._probe(m.name, mp)
+        except (MountError, OSError, OperationTimeout, ValidationError) as exc:
+            if self.backend.is_mounted(mp):
+                with contextlib.suppress(MountError):
+                    self.backend.unmount(mp, lazy=True, timeout=self.mount_timeout)
+            self._retry_at[mount_id] = self._clock() + self.retry_interval
+            msg = (
+                f"„{m.name}“ weiterhin nicht verfügbar: {exc}\n"
+                f"→ Neuer Versuch in {self.retry_interval:g} s."
+            )
+            self._set_state(mount_id, MountState.ERROR, msg)
+            event(log, "mount.retry_failed", level=30, mount=m.name, error=str(exc))
+            raise MountUnavailable(msg) from None
+        del self._retry_at[mount_id]
+        self._set_state(mount_id, MountState.MOUNTED, mounted=True)
+        event(log, "mount.recovered", mount=m.name, attempt="retry")
+        self._notify("mount.recovered", m.name, f"„{m.name}“ ist wieder eingehängt.")
 
     def usage(self, mount_id: int, timeout: float | None = None) -> tuple[int, int] | None:
         """(gesamt, frei) in Bytes – nur bei eingehängten Kernel-Mounts."""
