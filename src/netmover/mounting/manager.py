@@ -32,7 +32,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from netmover.crypto import SecretBox, redact
 from netmover.db import session_scope
 from netmover.logging_setup import event, get_logger
-from netmover.models import CredentialKind, Mount, MountState, MountType, utcnow
+from netmover.models import CredentialKind, Mount, MountState, MountType, Rule, utcnow
 from netmover.mounting.backend import CifsCredentials, MountBackend, MountError, MountSpec
 from netmover.mounting.report import CheckReport, assess_write
 from netmover.mounting.sftp import SftpConfig, SftpError, check_connection, connect
@@ -203,12 +203,31 @@ class MountManager:
         with self._locks_guard:
             return self._locks.setdefault(mount_id, threading.RLock())
 
-    def _notify(self, kind: str, name: str, message: str) -> None:
-        if self._notifier is not None:
-            try:
-                self._notifier(kind, name, message)
-            except Exception:
-                log.exception("notifier.failed")
+    def _notify(self, kind: str, name: str, message: str, mount_id: int | None = None) -> None:
+        if self._notifier is None:
+            return
+        if mount_id is not None:
+            rules = self._affected_rules(mount_id)
+            if rules and kind != "mount.recovered":
+                waiting = "\nBetroffene Regeln (warten, bis die Anbindung zurück ist): "
+                message += waiting + ", ".join(rules)
+            elif rules:
+                message += f"\nRegeln laufen wieder: {', '.join(rules)}"
+        try:
+            self._notifier(kind, name, message)
+        except Exception:
+            log.exception("notifier.failed")
+
+    def _affected_rules(self, mount_id: int) -> list[str]:
+        with session_scope(self.session_factory) as s:
+            return list(
+                s.scalars(
+                    select(Rule.name)
+                    .where(Rule.enabled.is_(True))
+                    .where((Rule.src_mount_id == mount_id) | (Rule.dst_mount_id == mount_id))
+                    .order_by(Rule.name)
+                )
+            )
 
     def mountpoint_for(self, slug: str) -> Path:
         if slugify(slug) != slug:
@@ -347,7 +366,7 @@ class MountManager:
                 # z. B. Stromausfall: die VM bootet schneller als das NAS
                 self._retry_at[mount_id] = self._clock() + self.retry_interval
                 results.append(RestoreResult(name, False, str(exc)))
-                self._notify("mount.restore_failed", name, str(exc))
+                self._notify("mount.restore_failed", name, str(exc), mount_id)
         for r in results:
             event(
                 log,
@@ -531,6 +550,8 @@ class MountManager:
                     self._retry_mount(mount_id, m, cred, mp)
                     return mp
                 msg = f"„{m.name}“ ist nicht eingehängt – Lauf abgebrochen, nichts angefasst."
+                if m.state is not MountState.ERROR:
+                    self._notify("mount.error", m.name, msg, mount_id)
                 self._set_state(mount_id, MountState.ERROR, msg)
                 raise MountUnavailable(msg)
             try:
@@ -563,8 +584,10 @@ class MountManager:
             msg = f"„{m.name}“ nicht erreichbar: {exc}"
             self._set_state(mount_id, MountState.ERROR, msg)
             if m.state is not MountState.ERROR:
-                self._notify("mount.error", m.name, msg)
+                self._notify("mount.error", m.name, msg, mount_id)
             raise MountUnavailable(msg) from None
+        if m.state is MountState.ERROR:
+            self._notify("mount.recovered", m.name, f"„{m.name}“ ist wieder erreichbar.", mount_id)
         if m.state is not MountState.MOUNTED:
             self._set_state(mount_id, MountState.MOUNTED)
 
@@ -601,7 +624,7 @@ class MountManager:
             self._retry_at[mount_id] = self._clock() + self.retry_interval
             msg += f"\n→ Neuer Versuch automatisch alle {self.retry_interval:g} s."
         self._set_state(mount_id, MountState.ERROR, msg)
-        self._notify("mount.error", m.name, msg)
+        self._notify("mount.error", m.name, msg, mount_id)
         raise MountUnavailable(msg)
 
     def retry_pending(self) -> list[str]:
@@ -663,7 +686,7 @@ class MountManager:
         del self._retry_at[mount_id]
         self._set_state(mount_id, MountState.MOUNTED, mounted=True)
         event(log, "mount.recovered", mount=m.name, attempt="retry")
-        self._notify("mount.recovered", m.name, f"„{m.name}“ ist wieder eingehängt.")
+        self._notify("mount.recovered", m.name, f"„{m.name}“ ist wieder eingehängt.", mount_id)
 
     def usage(self, mount_id: int, timeout: float | None = None) -> tuple[int, int] | None:
         """(gesamt, frei) in Bytes – nur bei eingehängten Kernel-Mounts."""

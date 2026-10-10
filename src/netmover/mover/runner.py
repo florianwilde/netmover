@@ -178,7 +178,7 @@ class RuleRunner:
                 else None
             )
         except MountUnavailable as exc:
-            return RunResult(RunStatus.ERROR, dry, message=str(exc))
+            return RunResult(RunStatus.ERROR, dry, message=str(exc), unavailable=True)
         if src_mp is None:  # nur bei SFTP, oben bereits ausgeschlossen
             return RunResult(RunStatus.ERROR, dry, message="Quelle ist kein Kernel-Mount")
         src_root = src_mp / plan.src_subpath if plan.src_subpath else src_mp

@@ -92,6 +92,8 @@ class RunResult:
     failed: int = 0
     message: str | None = None
     items: list[ItemResult] = field(default_factory=list)
+    # Quelle oder Ziel nicht erreichbar → Regel wartet (automatisch pausiert)
+    unavailable: bool = False
 
     def add(self, item: ItemResult) -> None:
         self.items.append(item)

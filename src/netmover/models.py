@@ -10,6 +10,8 @@ Abweichungen bzw. Ergänzungen gegenüber dem Mindestumfang aus der Spezifikatio
 * ``credentials.managed`` + ``mounts.username`` (Migration 0002) –
   Schlüsselverwaltung: gespeicherte SSH-Schlüssel, die mehrere Anbindungen mit
   jeweils eigenem Benutzernamen nutzen.
+* ``rules.waiting_since`` / ``rules.waiting_reason`` (Migration 0003) – Regel wartet
+  auf eine nicht erreichbare Anbindung (automatisch pausiert).
 * ``mounts.state_since`` – für „hängt seit …“ / „gestört seit …“ auf der Statusseite.
 * ``mounts.write_ok`` / ``mounts.root_squash`` / ``mounts.last_test_*`` – Ergebnis
   des letzten Mount-Tests; ``root_squash`` entscheidet, ob ``chown`` auf NFS-Zielen
@@ -260,6 +262,9 @@ class Rule(Base):
     last_run_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     last_success_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     consecutive_failures: Mapped[int] = mapped_column(Integer, default=0)
+    # Automatisch pausiert, solange Quelle oder Ziel nicht erreichbar ist (Migration 0003)
+    waiting_since: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    waiting_reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     src_mount: Mapped[Mount] = relationship(foreign_keys=[src_mount_id])

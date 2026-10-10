@@ -18,6 +18,14 @@ from alembic import command
 from netmover.db import alembic_config, upgrade
 
 
+def _head() -> str:
+    from alembic.script import ScriptDirectory
+
+    head = ScriptDirectory.from_config(alembic_config("sqlite://")).get_current_head()
+    assert head is not None
+    return head
+
+
 def _seed(db: Path) -> None:
     """Datenbank auf Stand 0001 mit verknüpften Daten, wie auf einem echten System."""
     c = sqlite3.connect(db)
@@ -80,7 +88,7 @@ def test_upgrade_with_linked_data(db_0001: tuple[str, Path]) -> None:
     url, db = db_0001
     upgrade(url)
     st = _state(db)
-    assert st["version"] == "0002"
+    assert st["version"] == _head()
     assert st["tmp_tables"] == [] and st["fk_violations"] == []
     assert "managed" in st["cred_columns"]  # type: ignore[operator]
     assert st["mounts"] == [("NAS", 1), ("paperless", 2)]
@@ -122,7 +130,7 @@ def test_failed_migration_leaves_database_untouched(
 
     monkeypatch.setattr(DefaultImpl, "drop_table", real_drop)
     upgrade(url)  # danach klappt es ohne Handarbeit
-    assert _state(db)["version"] == "0002"
+    assert _state(db)["version"] == _head()
 
 
 def test_app_engine_still_enforces_foreign_keys(db_url: str) -> None:
@@ -134,3 +142,36 @@ def test_app_engine_still_enforces_foreign_keys(db_url: str) -> None:
     with engine.connect() as conn:
         assert conn.execute(text("PRAGMA foreign_keys")).scalar() == 1
     engine.dispose()
+
+
+def test_upgrade_from_0002_keeps_everything_linked_to_rules(tmp_path: Path) -> None:
+    """0003 baut ``rules`` neu auf – Läufe, Buchführung und Fehlerzähler verweisen darauf."""
+    db = tmp_path / "v02.db"
+    url = f"sqlite:///{db}"
+    upgrade(url, "0001")
+    _seed(db)
+    upgrade(url, "0002")
+    c = sqlite3.connect(db)
+    c.execute("PRAGMA foreign_keys=ON")
+    c.executescript(
+        """
+        UPDATE credentials SET managed = 1 WHERE id = 2;
+        UPDATE mounts SET username = 'paperless' WHERE id = 2;
+        INSERT INTO copied_files (rule_id, src_relpath, size, mtime_ns, dst_path, copied_at)
+            VALUES (1, 'a.pdf', 1, 1, '/x/a.pdf', '2026-10-10 20:00:00');
+        INSERT INTO file_failures (rule_id, src_relpath, size, mtime_ns, attempts, last_attempt_at)
+            VALUES (1, 'b.pdf', 1, 1, 2, '2026-10-10 20:00:00');
+        """
+    )
+    c.commit()
+    c.close()
+    upgrade(url)
+    st = _state(db)
+    assert st["version"] == _head() and st["fk_violations"] == [] and st["tmp_tables"] == []
+    assert st["rules"] == [("Scans → Paperless", 1, 2)] and st["run_items"] == 1
+    c = sqlite3.connect(db)
+    assert c.execute("SELECT COUNT(*) FROM copied_files").fetchone()[0] == 1
+    assert c.execute("SELECT attempts FROM file_failures").fetchone()[0] == 2
+    assert c.execute("SELECT waiting_since FROM rules").fetchone()[0] is None
+    assert c.execute("SELECT username FROM mounts WHERE id = 2").fetchone()[0] == "paperless"
+    c.close()

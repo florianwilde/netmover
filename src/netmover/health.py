@@ -49,6 +49,7 @@ class Health:
     problems: list[str] = field(default_factory=list)
     stale_rules: set[int] = field(default_factory=set)
     checks: list[Check] = field(default_factory=list)
+    maintenance: bool = False
 
     def add(self, check: Check) -> None:
         self.checks.append(check)
@@ -86,12 +87,22 @@ def _mount_check(m: Mount) -> Check:
     return mk(True, f"Anbindung „{m.name}“ in Ordnung")
 
 
-def _rule_check(r: Rule, service_started: datetime, now: datetime) -> Check:
+def _rule_check(
+    r: Rule, service_started: datetime, now: datetime, maintenance: bool = False
+) -> Check:
     def mk(ok: bool, message: str) -> Check:
         return Check("rule", r.name, ok, message, id=r.id)
 
     if not r.enabled:
         return mk(True, f"Regel „{r.name}“ deaktiviert")
+    if maintenance:
+        return mk(True, f"Regel „{r.name}“ pausiert (Wartungsmodus)")
+    if r.waiting_since is not None:
+        return mk(
+            False,
+            f"Regel „{r.name}“ wartet seit {r.waiting_since:%Y-%m-%d %H:%M} UTC auf eine "
+            f"Anbindung: {r.waiting_reason or ''}".strip(),
+        )
     if rule_is_stale(r, service_started, now):
         ago = (
             "noch nie"
@@ -113,9 +124,11 @@ def check_health(
     last_heartbeat: datetime | None,
     service_started: datetime,
     now: datetime | None = None,
+    maintenance: bool = False,
 ) -> Health:
     now = now or utcnow()
     health = Health()
+    health.maintenance = maintenance
     if not scheduler_running:
         health.add(Check("scheduler", "Scheduler", False, "Scheduler läuft nicht"))
     elif last_heartbeat is None or now - last_heartbeat > HEARTBEAT_MAX_AGE:
@@ -128,8 +141,8 @@ def check_health(
         for m in s.scalars(select(Mount).order_by(Mount.name)):
             health.add(_mount_check(m))
         for r in s.scalars(select(Rule).order_by(Rule.name)):
-            check = _rule_check(r, service_started, now)
-            if r.enabled and rule_is_stale(r, service_started, now):
+            check = _rule_check(r, service_started, now, maintenance)
+            if r.enabled and not maintenance and rule_is_stale(r, service_started, now):
                 health.stale_rules.add(r.id)
             health.add(check)
     return health

@@ -8,6 +8,14 @@ die Einzeldateien in ``run_items``. Danach die Regelzähler:
 * ``consecutive_failures`` – ``error`` und ``partial`` zählen hoch, ``ok`` setzt zurück.
 
 Ein manuell gestarteter Probelauf verändert keine Zähler.
+
+Automatisch pausieren (0.4.0): Ist Quelle oder Ziel nicht erreichbar, wechselt die
+Regel in „wartet auf Anbindung“. Protokolliert wird nur der Beginn, nicht jeder
+weitere Termin, und „Fehler in Folge“ zählt nicht hoch – die Benachrichtigung
+kommt einmal pro Anbindung vom MountManager. Sobald ein Lauf wieder durchkommt,
+endet das Warten von selbst, und der Lauf vermerkt die Wartezeit.
+
+Wartungsmodus: geplante Läufe werden gar nicht erst ausgeführt.
 """
 
 from __future__ import annotations
@@ -51,6 +59,8 @@ class RunService:
     ) -> int | None:
         """Führt die Regel aus, protokolliert den Lauf und liefert die Run-ID
         (None, wenn die Regel inzwischen gelöscht wurde)."""
+        if trigger is RunTrigger.SCHEDULE and load_settings(self.session_factory).maintenance:
+            return None
         started = utcnow()
         result = self.runner.run(rule_id, dry_run=dry_run)
         finished = utcnow()
@@ -73,6 +83,29 @@ class RunService:
             if rule is None:
                 return None
             message = result.message
+            if update_counters and result.unavailable:
+                if rule.waiting_since is not None:
+                    # wartet bereits – nur den Grund aktualisieren, kein neuer Eintrag
+                    rule.waiting_reason = result.message
+                    event(log, "rule.still_waiting", level=10, rule=rule.name)
+                    return None
+                rule.waiting_since = finished
+                rule.waiting_reason = result.message
+                rule.last_run_at = finished
+                message = f"Pausiert, bis die Anbindung zurück ist: {result.message}"
+                update_counters = False  # „Fehler in Folge“ nicht hochzählen
+                event(log, "rule.waiting", level=30, rule=rule.name, reason=result.message or "")
+            elif (
+                update_counters
+                and rule.waiting_since is not None
+                and result.status is not RunStatus.SKIPPED
+            ):
+                waited = _human(finished - rule.waiting_since)
+                rule.waiting_since = None
+                rule.waiting_reason = None
+                note = f"Fortgesetzt nach {waited} Wartezeit"
+                message = f"{note}; {message}" if message else note
+                event(log, "rule.resumed", rule=rule.name, waited=waited)
             items = result.items
             if len(items) > MAX_ITEMS_PER_RUN:
                 extra = len(items) - MAX_ITEMS_PER_RUN
@@ -151,6 +184,15 @@ class RunService:
         lines = [f"{result.failed} Datei(en) fehlgeschlagen:"]
         lines += [f"• {i.src}: {i.message}" for i in failed]
         return "\n".join(lines)
+
+
+def _human(delta: timedelta) -> str:
+    seconds = int(delta.total_seconds())
+    if seconds < 90:
+        return f"{seconds} s"
+    if seconds < 5400:
+        return f"{round(seconds / 60)} min"
+    return f"{seconds / 3600:.1f} h".replace(".", ",")
 
 
 def cleanup(session_factory: sessionmaker[Session], now: datetime | None = None) -> dict[str, int]:
