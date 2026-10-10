@@ -8,6 +8,35 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 
 ## [Unreleased]
 
+## [0.1.1] – 2026-10-10
+
+Korrekturen aus dem ersten Praxistest auf einer Debian-13-VM mit echten
+SMB-, NFS- und SFTP-Servern.
+
+### Behoben
+- **systemd-Unit:** `ProtectSystem`, `PrivateTmp` und `ProtectControlGroups`
+  gaben dem Dienst einen eigenen Mount-Namespace. Die Mounts waren für das System
+  und andere Programme unsichtbar und verschwanden bei jedem Neustart des Dienstes
+  (`MountFlags=shared` half nicht). Jetzt nur noch Härtungen ohne Namespace.
+- **Stabilitätsprüfung:** CIFS lieferte per `stat()` sekundenlang eine veraltete
+  Größe einer noch wachsenden Datei. Gemessen wird jetzt per `open()` + `fstat()`,
+  das erzwingt frische Attribute. Gesperrte Dateien gelten als „in Benutzung“.
+  (Die zweite Sicherung, die Byte-Zählung beim Kopieren, hatte den Fall bereits
+  abgefangen; es kam keine unvollständige Datei an.)
+- **Ausfall länger als die Wiederherstellung (z. B. NAS-Neustart, Stromausfall):**
+  Von NetMover selbst ausgehängte Anbindungen mit „automatisch einhängen“ werden
+  jetzt jede Minute erneut eingehängt, auch wenn das Einhängen schon beim
+  Dienststart scheiterte. Entwarnung per Webhook. Von außen ausgehängte Anbindungen
+  bleiben weiterhin unangetastet.
+- Bei einer Zeitüberschreitung von `mount` wird die ganze Prozessgruppe beendet, damit
+  `mount.nfs` nicht später doch noch einhängt.
+- Hinweistexte zu `mount`-Fehlern werden nicht mehr mitgeschwärzt.
+- `install.sh` ohne `debconf`-Warnungen, wenn kein Terminal angeschlossen ist.
+
+### Dokumentation
+- Fehlersuche: verzögert sichtbare Dateien auf CIFS → `nohandlecache`.
+- README erklärt, warum die Unit keine Namespace-Härtung nutzt.
+
 ## [0.1.0] – 2026-10-10
 
 Erste Version.
@@ -99,5 +128,6 @@ Erste Version.
 - Löschen von Zugangsdaten, die noch von einem Mount benutzt werden, trennt den
   Mount nicht mehr stillschweigend ab, sondern wird von der Datenbank abgelehnt.
 
-[Unreleased]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.1.0...HEAD
+[Unreleased]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.1.1...HEAD
+[0.1.1]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.1.0...v0.1.1
 [0.1.0]: https://git.wilde-server.de/florian.wilde/netmover/releases/tag/v0.1.0

@@ -340,6 +340,7 @@ findmnt -R /mnt/netmover                     # was ist wirklich eingehängt?
 | „Hostschlüssel … hat sich geändert“ (SFTP) | Wurde der Zielserver neu aufgesetzt? Dann bei der Anbindung „Hostschlüssel zurücksetzen“ und neu testen. Sonst **nicht** verbinden. |
 | SFTP: „Anmeldung abgelehnt“ | Öffentlicher Schlüssel fehlt in `authorized_keys`, oder Rechte von `~/.ssh` stimmen nicht (700/600, Eigentümer). |
 | Paperless bemerkt neue Dateien nicht | Ältere Paperless-Versionen: `PAPERLESS_CONSUMER_POLLING=10` setzen. |
+| Neue Dateien erscheinen erst nach bis zu 30 s | Der CIFS-Client speichert Verzeichnislisten zwischen. Gelangen Dateien nicht per SMB aufs NAS (z. B. per FTP vom Scanner), erfährt er nichts davon. Abhilfe: Zusatzoption `nohandlecache`. |
 | Regel gelb „länger als 3 × Intervall“ | Seit dem Dreifachen des Intervalls kein erfolgreicher Lauf; Protokoll der Regel ansehen. |
 | Einrichtungscode verloren | `systemctl restart netmover` erzeugt einen neuen. |
 

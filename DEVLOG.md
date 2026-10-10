@@ -13,9 +13,54 @@ Zeiten in Ortszeit (Europe/Berlin).
 | 2026-10-10 | 19:10 | 19:17 | 0:07  | 4       | Scheduler, Protokoll, Benachrichtigung |
 | 2026-10-10 | 19:18 | 19:34 | 0:16  | 5       | Weboberfläche und Anmeldung            |
 | 2026-10-10 | 19:40 | 19:50 | 0:10  | 6       | Deployment, README, Release 0.1.0      |
-| **Summe**  |       |       | **1:06** |      |                                        |
+| 2026-10-10 | 21:36 | 22:05 | 0:29  | –       | Praxistest auf VM, Release 0.1.1       |
+| **Summe**  |       |       | **1:35** |      |                                        |
 
 ---
+
+## 2026-10-10 · 21:36–22:05 · Praxistest auf der Debian-13-VM, Release 0.1.1
+
+**Umgebung**
+- KVM-VM `srv-rz-netmover` (10.0.10.223), Debian 13, Python 3.13, 2 GB RAM.
+- Installation per `deploy/install.sh` aus einem `git archive` (VM ohne Gitea-Zugang).
+- Vorübergehende Testserver auf der VM: Samba (nur `lo`), NFS-Exporte für
+  `127.0.0.1` (mit/ohne Root-Squash), SFTP-Benutzer `paperless` mit Schlüssel
+  `restrict,command="/usr/lib/openssh/sftp-server"`.
+- Auf Wunsch `NETMOVER_HOST=0.0.0.0`, damit die Oberfläche im LAN erreichbar ist.
+
+**Bestanden**
+- Ersteinrichtung mit Code aus dem Log, Cookie-Flags.
+- CIFS (Passwort mit Komma/Ausrufezeichen, Credentials-Datei danach weg), NFS 4,
+  NFS 3, Root-Squash-Erkennung mit Synology-Hinweis, SFTP mit TOFU (Fingerabdruck
+  = `ssh-keygen -lf`), echtes OpenSSH liefert `statvfs`.
+- Probelauf, Kollision `scan001-1.pdf`, `.txt`/`.part` ignoriert, keine `.part`-Reste,
+  Eigentümer `paperless` im SFTP-Ziel.
+- Langsam wachsende Datei (20 × 50 KB/s): erst nach Ende verschoben, Prüfsumme gleich.
+- Kopiermodus rekursiv mit Eigentümer/Modus; zweiter Lauf „2 bereits übertragen“.
+- Samba gestoppt: Lebenszeichen 15 s → gestört → 3 Versuche → Fehler, `/healthz` 503,
+  nichts angefasst. NFS-Server gestoppt (hängender `hard`-Mount): Oberfläche und
+  andere Regel liefen weiter, Rückkehr automatisch.
+- Mounts überstehen Stopp/Start des Dienstes (gleiche Mount-IDs).
+- Neustart der VM: NFS sofort, SMB per Neuversuch nach ~1 min, Regel läuft weiter.
+
+**Gefunden und behoben (v0.1.1)**
+1. **systemd-Unit mit eigenem Mount-Namespace** (ProtectSystem/PrivateTmp/…):
+   Mounts nur im Dienst sichtbar, `shared,slave`. Härtung ohne Namespace.
+2. **CIFS-Attribut-Cache**: `stat()` meldete 3 s lang eine veraltete Größe einer
+   wachsenden Datei; die Byte-Zählung beim Kopieren fing das ab. Jetzt
+   `open()` + `fstat()` für beide Messungen.
+3. **Nach drei gescheiterten Versuchen endgültig aufgegeben** – zu kurz für einen
+   NAS-Neustart, und beim Booten vor dem NAS kam die Freigabe nie zurück.
+   Jetzt minütlicher Neuversuch (nur für von NetMover selbst ausgehängte
+   Anbindungen mit `auto_mount`) plus Scheduler-Job.
+4. `mount`-Zeitlimit beendete nur `mount`, nicht `mount.nfs` → später doch
+   eingehängt. Jetzt ganze Prozessgruppe.
+5. Hinweistext wurde mitgeschwärzt; `debconf`-Warnungen in `install.sh`.
+
+**Nicht nachstellbar**
+- Einmalig 46 s Verzögerung direkt nach dem Booten (CIFS-Verzeichnis-Cache bei
+  lokal statt per SMB angelegter Datei). Messungen danach 9–11 s, mit und ohne
+  `nohandlecache`. Als Hinweis in die Fehlersuche aufgenommen.
 
 ## 2026-10-10 · 19:40–19:50 · Schritt 6: Deployment, README, Release 0.1.0
 
