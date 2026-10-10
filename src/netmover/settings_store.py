@@ -34,6 +34,7 @@ class AppSettings:
     notify_recovery: bool = True
     webhook_template: str = DEFAULT_TEMPLATE
     webhook_content_type: str = "application/json"
+    kuma_push_url: str = ""
 
 
 _PREFIX = "app."

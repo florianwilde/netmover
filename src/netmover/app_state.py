@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from netmover import kuma
 from netmover.config import Settings
 from netmover.crypto import SecretBox, load_or_create_key
 from netmover.db import make_engine, make_session_factory, upgrade
@@ -23,6 +24,7 @@ from netmover.mover.runner import RuleRunner
 from netmover.notify import Notifier
 from netmover.runs import RunService
 from netmover.scheduler import RuleScheduler
+from netmover.settings_store import load_settings
 
 log = get_logger(__name__)
 
@@ -59,7 +61,10 @@ class NetMover:
         self.runner = RuleRunner(self.session_factory, self.mounts)
         self.runs = RunService(self.session_factory, self.runner, self.notifier)
         self.scheduler = RuleScheduler(
-            self.session_factory, self.runs, retry_mounts=self.mounts.retry_pending
+            self.session_factory,
+            self.runs,
+            retry_mounts=self.mounts.retry_pending,
+            push_health=self.push_health,
         )
         self.started_at: datetime = utcnow()
         self.restore_results: list[RestoreResult] = []
@@ -75,6 +80,12 @@ class NetMover:
     def stop(self) -> None:
         self.scheduler.shutdown()
         self.db_engine.dispose()
+
+    def push_health(self) -> None:
+        """Scheduler-Job (jede Minute): Zustand an Uptime Kuma melden, falls eingerichtet."""
+        url = load_settings(self.session_factory).kuma_push_url
+        if url:
+            kuma.push(url, self.health())
 
     def health(self) -> Health:
         return check_health(

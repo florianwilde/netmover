@@ -33,6 +33,7 @@ MAX_START_OFFSET = 10.0
 HEARTBEAT_SECONDS = 30
 CLEANUP_SECONDS = 3600
 RETRY_SECONDS = 60
+PUSH_SECONDS = 60
 
 
 def _job_id(rule_id: int) -> str:
@@ -46,12 +47,14 @@ class RuleScheduler:
         service: RunService,
         *,
         retry_mounts: Callable[[], object] | None = None,
+        push_health: Callable[[], object] | None = None,
         rng: random.Random | None = None,
         workers: int = 8,
     ) -> None:
         self.session_factory = session_factory
         self.service = service
         self._retry_mounts = retry_mounts
+        self._push_health = push_health
         self._rng = rng or random.Random()  # noqa: S311 – nur Startversatz
         self._executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="nm-run")
         self.scheduler = AsyncIOScheduler(
@@ -77,6 +80,10 @@ class RuleScheduler:
         if self._retry_mounts is not None:
             self.scheduler.add_job(
                 self._retry, IntervalTrigger(seconds=RETRY_SECONDS), id="mount-retry"
+            )
+        if self._push_health is not None:
+            self.scheduler.add_job(
+                self._push, IntervalTrigger(seconds=PUSH_SECONDS), id="kuma-push"
             )
         self.sync()
         event(log, "scheduler.started", rules=len(self._intervals))
@@ -153,6 +160,11 @@ class RuleScheduler:
         if self._retry_mounts is not None:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(self._executor, self._retry_mounts)
+
+    async def _push(self) -> None:
+        if self._push_health is not None:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(self._executor, self._push_health)
 
     async def _cleanup(self) -> None:
         loop = asyncio.get_running_loop()
