@@ -485,3 +485,41 @@ def test_hint_text_is_not_redacted() -> None:
     out = _redact_output(msg, ["falsch"])
     assert out.startswith("mount error(13): Permission denied ••••••")
     assert out.endswith("→ Benutzername/Passwort falsch oder …")
+
+
+def test_restore_failure_at_boot_is_retried_by_background_job(
+    retry_manager: MountManager,
+    fake_backend: FakeMountBackend,
+    make_mount: MountFactory,
+    session_factory: sessionmaker[Session],
+    notifications: list[tuple[str, str, str]],
+    clock: Clock,
+) -> None:
+    """Stromausfall: die VM bootet schneller als das NAS."""
+    fake_backend.export("nas", "scans")
+    mid = make_mount()  # keine Regel benutzt die Anbindung
+    fake_backend.fail_next_mount()
+    assert [r.ok for r in retry_manager.restore_all()] == [False]
+    assert retry_manager.retry_pending() == []  # noch nicht fällig
+    clock.now += 60
+    assert retry_manager.retry_pending() == ["scans"]
+    assert fake_backend.is_mounted(retry_manager.mountpoint_for("scans"))
+    assert _state(session_factory, mid).state is MountState.MOUNTED
+    assert notifications[-1][0] == "mount.recovered"
+    clock.now += 60
+    assert retry_manager.retry_pending() == []  # erledigt
+
+
+def test_manual_unmount_stops_retrying(
+    retry_manager: MountManager,
+    fake_backend: FakeMountBackend,
+    make_mount: MountFactory,
+    clock: Clock,
+) -> None:
+    mid = make_mount()  # nicht exportiert → Wiederherstellung scheitert
+    retry_manager.restore_all()
+    retry_manager.unmount(mid)
+    fake_backend.export("nas", "scans")
+    clock.now += 120
+    assert retry_manager.retry_pending() == []
+    assert not fake_backend.mounted

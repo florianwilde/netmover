@@ -344,6 +344,8 @@ class MountManager:
                 self.mount(mount_id)
                 results.append(RestoreResult(name, True, "eingehängt"))
             except (MountError, ValidationError, LookupError) as exc:
+                # z. B. Stromausfall: die VM bootet schneller als das NAS
+                self._retry_at[mount_id] = self._clock() + self.retry_interval
                 results.append(RestoreResult(name, False, str(exc)))
                 self._notify("mount.restore_failed", name, str(exc))
         for r in results:
@@ -596,6 +598,35 @@ class MountManager:
         self._set_state(mount_id, MountState.ERROR, msg)
         self._notify("mount.error", m.name, msg)
         raise MountUnavailable(msg)
+
+    def retry_pending(self) -> list[str]:
+        """Fällige Neuversuche ausführen (Scheduler-Job, jede Minute) – auch für
+        Anbindungen, die gerade keine Regel benutzt. Liefert die zurückgeholten Namen."""
+        recovered: list[str] = []
+        for mount_id in list(self._retry_at):
+            if self._retry_at.get(mount_id, float("inf")) > self._clock():
+                continue
+            with self._lock(mount_id):
+                if mount_id not in self._retry_at:
+                    continue
+                try:
+                    m, cred = self._load(mount_id)
+                except LookupError:
+                    self._retry_at.pop(mount_id, None)
+                    continue
+                if not (m.enabled and m.auto_mount and m.type.is_kernel_mount):
+                    self._retry_at.pop(mount_id, None)
+                    continue
+                mp = self.mountpoint_for(m.slug)
+                if self.backend.is_mounted(mp):
+                    self._retry_at.pop(mount_id, None)
+                    continue
+                try:
+                    self._retry_mount(mount_id, m, cred, mp)
+                    recovered.append(m.name)
+                except MountUnavailable:
+                    pass
+        return recovered
 
     def _retry_mount(self, mount_id: int, m: Mount, cred: CredentialData | None, mp: Path) -> None:
         """Ein Versuch, einen von NetMover selbst ausgehängten Mount zurückzuholen –

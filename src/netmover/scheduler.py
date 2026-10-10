@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
@@ -31,6 +32,7 @@ log = get_logger(__name__)
 MAX_START_OFFSET = 10.0
 HEARTBEAT_SECONDS = 30
 CLEANUP_SECONDS = 3600
+RETRY_SECONDS = 60
 
 
 def _job_id(rule_id: int) -> str:
@@ -43,11 +45,13 @@ class RuleScheduler:
         session_factory: sessionmaker[Session],
         service: RunService,
         *,
+        retry_mounts: Callable[[], object] | None = None,
         rng: random.Random | None = None,
         workers: int = 8,
     ) -> None:
         self.session_factory = session_factory
         self.service = service
+        self._retry_mounts = retry_mounts
         self._rng = rng or random.Random()  # noqa: S311 – nur Startversatz
         self._executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="nm-run")
         self.scheduler = AsyncIOScheduler(
@@ -70,6 +74,10 @@ class RuleScheduler:
             IntervalTrigger(seconds=CLEANUP_SECONDS, start_date=utcnow() + timedelta(minutes=1)),
             id="cleanup",
         )
+        if self._retry_mounts is not None:
+            self.scheduler.add_job(
+                self._retry, IntervalTrigger(seconds=RETRY_SECONDS), id="mount-retry"
+            )
         self.sync()
         event(log, "scheduler.started", rules=len(self._intervals))
 
@@ -140,6 +148,11 @@ class RuleScheduler:
         return await loop.run_in_executor(
             self._executor, self.service.execute, rule_id, RunTrigger.MANUAL, dry_run
         )
+
+    async def _retry(self) -> None:
+        if self._retry_mounts is not None:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(self._executor, self._retry_mounts)
 
     async def _cleanup(self) -> None:
         loop = asyncio.get_running_loop()

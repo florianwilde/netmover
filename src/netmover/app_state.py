@@ -58,7 +58,9 @@ class NetMover:
         )
         self.runner = RuleRunner(self.session_factory, self.mounts)
         self.runs = RunService(self.session_factory, self.runner, self.notifier)
-        self.scheduler = RuleScheduler(self.session_factory, self.runs)
+        self.scheduler = RuleScheduler(
+            self.session_factory, self.runs, retry_mounts=self.mounts.retry_pending
+        )
         self.started_at: datetime = utcnow()
         self.restore_results: list[RestoreResult] = []
 
