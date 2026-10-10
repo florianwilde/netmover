@@ -27,18 +27,17 @@ RuntimeDirectory=netmover
 RuntimeDirectoryMode=0700
 
 # Härtung, soweit mit Mounten vereinbar.
-# Die Optionen unten erzeugen einen eigenen Mount-Namespace für den Dienst.
-# MountFlags=shared sorgt dafür, dass Mounts unter /mnt/netmover trotzdem im
-# System sichtbar sind (prüfen mit: findmnt -R /mnt/netmover).
-MountFlags=shared
-# /usr, /boot und /etc schreibgeschützt; /mnt, /opt, /srv, /var bleiben schreibbar
-# (lokale Ziele wie /opt/paperless/consume funktionieren also).
-ProtectSystem=full
-PrivateTmp=yes
+# WICHTIG: Keine Optionen, die einen eigenen Mount-Namespace erzeugen
+# (ProtectSystem=, ProtectHome=, PrivateTmp=, ProtectControlGroups=,
+# ReadOnlyPaths=, BindPaths= …). Sonst landen die Mounts im Namespace des
+# Dienstes: das System und andere Programme (Paperless!) sähen sie nicht, und
+# jeder Neustart des Dienstes würde sie verwerfen. MountFlags=shared hilft dagegen
+# nicht – systemd setzt den Namespace als „slave“ auf, Mounts fließen nur hinein.
+# Auf dem Testsystem nachgewiesen; prüfen mit: findmnt -l | grep /mnt/netmover
 NoNewPrivileges=yes
-ProtectControlGroups=yes
 LockPersonality=yes
 RestrictRealtime=yes
+RestrictSUIDSGID=yes
 UMask=0022
 
 [Install]
