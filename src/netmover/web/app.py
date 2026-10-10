@@ -49,8 +49,17 @@ from netmover.admin import (
 )
 from netmover.app_state import NetMover
 from netmover.config import Settings, get_settings
+from netmover.credentials import (
+    create_password,
+    delete_credential,
+    generate_key,
+    import_key,
+    list_keys,
+    list_passwords,
+    rename_credential,
+    update_password,
+)
 from netmover.db import session_scope
-from netmover.keys import delete_key, generate_key, import_key, list_keys, rename_key
 from netmover.kuma import push as kuma_push
 from netmover.logging_setup import event, get_logger
 from netmover.mail import SECURITY_MODES, MailConfigError, parse_recipients, valid_address
@@ -511,7 +520,7 @@ async def mounts_page(request: Request) -> Response:
             m.id: m.credential.name
             for m in mounts
             if m.credential is not None and m.credential.managed
-        }
+        }  # Name gespeicherter Zugangsdaten (Passwort oder Schlüssel)
         return render(
             request,
             "mounts.html",
@@ -531,6 +540,15 @@ def _report_data(raw: str | None) -> dict[str, Any]:
     data.pop("ok", None)
     data["steps"] = [CheckStep(**st) for st in data.get("steps", [])]
     return data
+
+
+def _password_options(request: Request) -> list[tuple[str, str]]:
+    with nm(request).session_factory() as s:
+        stored = list_passwords(s)
+    return [("own", "eigene Angaben für diese Anbindung")] + [
+        (str(p.id), f"{p.name} ({p.domain + chr(92) if p.domain else ''}{p.username})")
+        for p in stored
+    ]
 
 
 def _key_options(request: Request) -> list[tuple[str, str]]:
@@ -566,6 +584,7 @@ def _mount_form(
             mount is not None and mount.credential is not None and not mount.credential.managed
         ),
         key_options=_key_options(request),
+        password_options=_password_options(request),
     )
 
 
@@ -702,26 +721,75 @@ async def mount_reset_hostkey(request: Request, mount_id: int) -> Response:
     return redirect(f"/mounts#mount-{mount_id}")
 
 
-# -- Schlüsselverwaltung ----------------------------------------------------------------------
+# -- Zugangsdaten ------------------------------------------------------------------------------
 
 
-@protected.get("/keys", response_class=HTMLResponse)
-async def keys_page(request: Request) -> Response:
+@protected.get("/credentials", response_class=HTMLResponse)
+async def credentials_page(request: Request) -> Response:
     with nm(request).session_factory() as s:
-        return render(request, "keys.html", active="keys", keys=list_keys(s))
+        return render(
+            request,
+            "credentials.html",
+            active="keys",
+            keys=list_keys(s),
+            passwords=list_passwords(s),
+        )
 
 
-async def _key_action(request: Request, work: Callable[[Any], str]) -> Response:
+@protected.get("/keys")
+async def keys_redirect(request: Request) -> Response:
+    return RedirectResponse("/credentials", status_code=301)
+
+
+async def _cred_action(request: Request, work: Callable[[Any], str]) -> Response:
     state = nm(request)
     try:
         with session_scope(state.session_factory) as s:
             flash(request, work(s))
     except AdminError as exc:
         flash(request, str(exc), "error")
-    return redirect("/keys")
+    return redirect("/credentials")
 
 
-@protected.post("/keys/generate")
+@protected.post("/credentials/passwords")
+async def password_create(request: Request) -> Response:
+    form = _form_dict(await request.form())
+    secrets = nm(request).secrets
+
+    def work(s: Any) -> str:
+        cred = create_password(
+            s,
+            secrets,
+            form.get("name", ""),
+            form.get("username", ""),
+            form.get("password", ""),
+            form.get("domain", ""),
+        )
+        return f"Zugangsdaten „{cred.name}“ gespeichert."
+
+    return await _cred_action(request, work)
+
+
+@protected.post("/credentials/{cred_id}/password")
+async def password_update(request: Request, cred_id: int) -> Response:
+    form = _form_dict(await request.form())
+    secrets = nm(request).secrets
+
+    def work(s: Any) -> str:
+        cred = update_password(
+            s,
+            secrets,
+            cred_id,
+            form.get("username", ""),
+            form.get("password", ""),
+            form.get("domain", ""),
+        )
+        return f"Zugangsdaten „{cred.name}“ geändert – gilt ab sofort für alle Anbindungen."
+
+    return await _cred_action(request, work)
+
+
+@protected.post("/credentials/keys/generate")
 async def key_generate(request: Request) -> Response:
     form = _form_dict(await request.form())
     secrets = nm(request).secrets
@@ -730,10 +798,10 @@ async def key_generate(request: Request) -> Response:
         key = generate_key(s, secrets, form.get("name", ""))
         return f"Schlüssel „{key.name}“ erzeugt."
 
-    return await _key_action(request, work)
+    return await _cred_action(request, work)
 
 
-@protected.post("/keys/import")
+@protected.post("/credentials/keys/import")
 async def key_import(request: Request) -> Response:
     form = _form_dict(await request.form())
     secrets = nm(request).secrets
@@ -748,26 +816,26 @@ async def key_import(request: Request) -> Response:
         )
         return f"Schlüssel „{key.name}“ importiert."
 
-    return await _key_action(request, work)
+    return await _cred_action(request, work)
 
 
-@protected.post("/keys/{key_id}/rename")
-async def key_rename(request: Request, key_id: int) -> Response:
+@protected.post("/credentials/{cred_id}/rename")
+async def credential_rename(request: Request, cred_id: int) -> Response:
     form = _form_dict(await request.form())
 
     def work(s: Any) -> str:
-        rename_key(s, key_id, form.get("name", ""))
-        return "Schlüssel umbenannt."
+        rename_credential(s, cred_id, form.get("name", ""))
+        return "Umbenannt."
 
-    return await _key_action(request, work)
+    return await _cred_action(request, work)
 
 
-@protected.post("/keys/{key_id}/delete")
-async def key_delete(request: Request, key_id: int) -> Response:
+@protected.post("/credentials/{cred_id}/delete")
+async def credential_delete(request: Request, cred_id: int) -> Response:
     def work(s: Any) -> str:
-        return f"Schlüssel „{delete_key(s, key_id)}“ gelöscht."
+        return f"„{delete_credential(s, cred_id)}“ gelöscht."
 
-    return await _key_action(request, work)
+    return await _cred_action(request, work)
 
 
 # -- Regeln -----------------------------------------------------------------------------------

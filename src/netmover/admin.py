@@ -85,6 +85,7 @@ def _int(
 
 
 NEW_KEY = "new"
+OWN = "own"
 
 
 @dataclass
@@ -101,6 +102,8 @@ class MountInput:
     # nur sftp + Schlüssel: "new" = eigener Schlüssel nur für diese Anbindung,
     # sonst ID eines Schlüssels aus der Schlüsselverwaltung
     key_id: str = NEW_KEY
+    # Passwort-Anmeldung (SMB, SFTP): "own" = eigene Angaben, sonst ID gespeicherter Zugangsdaten
+    cred_id: str = OWN
     uid: int | None = None
     gid: int | None = None
     file_mode: str | None = None
@@ -135,7 +138,12 @@ def mount_input_from_model(m: Mount) -> MountInput:
         username=m.username or (c.username if c else ""),
         domain=(c.domain or "") if c else "",
         auth=c.kind if c else CredentialKind.PASSWORD,
-        key_id=str(c.id) if c is not None and c.managed else NEW_KEY,
+        key_id=str(c.id)
+        if c is not None and c.managed and c.kind is CredentialKind.SSH_KEY
+        else NEW_KEY,
+        cred_id=str(c.id)
+        if c is not None and c.managed and c.kind is CredentialKind.PASSWORD
+        else OWN,
         uid=m.uid,
         gid=m.gid,
         file_mode=m.file_mode,
@@ -159,10 +167,14 @@ def parse_mount_form(form: Mapping[str, str]) -> tuple[MountInput, Errors]:
         auto_mount=_bool(form, "auto_mount"),
         enabled=_bool(form, "enabled"),
         key_id=(form.get("key_id") or NEW_KEY).strip(),
+        cred_id=(form.get("cred_id") or OWN).strip(),
     )
     if data.key_id != NEW_KEY and not data.key_id.isdigit():
         errors["key_id"] = "Ungültige Schlüsselauswahl."
         data.key_id = NEW_KEY
+    if data.cred_id != OWN and not data.cred_id.isdigit():
+        errors["cred_id"] = "Ungültige Auswahl."
+        data.cred_id = OWN
     try:
         data.type = MountType(form.get("type", "cifs"))
     except ValueError:
@@ -210,7 +222,14 @@ def parse_mount_form(form: Mapping[str, str]) -> tuple[MountInput, Errors]:
         data.username = check("username", lambda: validate_username(data.username), data.username)
     if data.domain:
         check("domain", lambda: validate_username(data.domain), "")
-    if data.type is MountType.SFTP and not data.username:
+    if data.auth is CredentialKind.SSH_KEY or data.type in (MountType.NFS3, MountType.NFS4):
+        data.cred_id = OWN
+    uses_stored = data.cred_id != OWN
+    if uses_stored:
+        data.username = data.domain = data.password = ""  # kommen aus den Zugangsdaten
+        errors.pop("username", None)
+        errors.pop("password", None)
+    if data.type is MountType.SFTP and not data.username and not uses_stored:
         errors["username"] = "SFTP braucht einen Benutzernamen."
     if data.type is not MountType.SFTP:
         data.auth = CredentialKind.PASSWORD
@@ -224,7 +243,19 @@ def credential_for_test(
 ) -> CredentialData | None:
     """Zugangsdaten für „Testen“ aus dem Formular – leeres Passwort = gespeichertes,
     gewählter Schlüssel aus der Schlüsselverwaltung."""
-    if data.type in (MountType.NFS3, MountType.NFS4) or not data.username:
+    if data.type in (MountType.NFS3, MountType.NFS4):
+        return None
+    if data.cred_id != OWN and s is not None:
+        stored = s.get(Credential, int(data.cred_id))
+        if stored is None or not stored.managed or stored.kind is not CredentialKind.PASSWORD:
+            return None
+        return CredentialData(
+            CredentialKind.PASSWORD,
+            stored.username,
+            secrets.decrypt(stored.secret_enc),
+            stored.domain,
+        )
+    if not data.username:
         return None
     if data.auth is CredentialKind.SSH_KEY and data.key_id != NEW_KEY and s is not None:
         key = s.get(Credential, int(data.key_id))
@@ -321,8 +352,12 @@ def save_mount(
     # (geteilt, wird hier nie verändert) oder eigene Zugangsdaten nur dieser Anbindung.
     current = m.credential
     own = current if current is not None and not current.managed else None
+    stored_password = data.cred_id != OWN and (
+        data.type is MountType.CIFS
+        or (data.type is MountType.SFTP and data.auth is CredentialKind.PASSWORD)
+    )
     needs_cred = data.type is MountType.SFTP or (
-        data.type is MountType.CIFS and bool(data.username)
+        data.type is MountType.CIFS and (bool(data.username) or stored_password)
     )
     use_managed = (
         data.type is MountType.SFTP
@@ -331,6 +366,13 @@ def save_mount(
     )
     if not needs_cred:
         m.credential = None
+        m.username = None
+    elif stored_password:
+        stored = s.get(Credential, int(data.cred_id))
+        if stored is None or not stored.managed or stored.kind is not CredentialKind.PASSWORD:
+            s.rollback()
+            return None, {"cred_id": "Zugangsdaten existieren nicht."}
+        m.credential = stored
         m.username = None
     elif use_managed:
         key = s.get(Credential, int(data.key_id))

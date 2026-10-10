@@ -25,16 +25,21 @@
   <fieldset data-show-for="type:cifs sftp"><legend>Anmeldung <a class="legend-help" href="/help#anbindung-felder" title="Hilfe">?</a></legend><div class="fields">
     <div data-show-for="type:sftp">{{ select('auth', 'Anmeldeart', [('ssh_key', 'SSH-Schlüssel'), ('password', 'Passwort')], d.auth.value, errors=errors) }}</div>
     <div data-show-for="type:sftp"><div data-show-for="auth:ssh_key">
-      {{ select('key_id', 'Schlüssel', key_options, d.key_id, errors=errors, hint='Gespeicherte Schlüssel verwalten unter „Schlüssel“.') }}
+      {{ select('key_id', 'Schlüssel', key_options, d.key_id, errors=errors, hint='Verwalten unter „Zugangsdaten“.') }}
     </div></div>
-    {{ field('username', 'Benutzername', d.username, errors=errors, attrs='autocomplete="off"') }}
-    <div data-show-for="type:cifs">{{ field('domain', 'Domäne (optional)', d.domain, errors=errors) }}</div>
-    <div class="field{{ ' has-error' if errors.get('password') }}" id="pw-field" data-show-for="type:cifs|auth:password">
+    <div data-show-for="type:cifs|auth:password">
+      {{ select('cred_id', 'Zugangsdaten', password_options, d.cred_id, errors=errors, hint='Gespeicherte Passwörter verwalten unter „Zugangsdaten“.') }}
+    </div>
+    <div data-show-for="auth:ssh_key|cred_id:own">
+      {{ field('username', 'Benutzername', d.username, errors=errors, attrs='autocomplete="off"') }}
+    </div>
+    <div data-show-for="cred_id:own"><div data-show-for="type:cifs">{{ field('domain', 'Domäne (optional)', d.domain, errors=errors) }}</div></div>
+    <div data-show-for="cred_id:own"><div class="field{{ ' has-error' if errors.get('password') }}" id="pw-field" data-show-for="type:cifs|auth:password">
       <label for="f-password">Passwort</label>
       <input id="f-password" type="password" name="password" autocomplete="new-password" placeholder="{{ '••••••' if has_secret }}">
       {% if errors.get('password') %}<span class="error">{{ errors['password'] }}</span>{% endif %}
       <span class="hint">{{ 'Leer lassen = unverändert. ' if has_secret }}<span data-show-for="type:cifs">Benutzer und Passwort leer = Gastzugang.</span></span>
-    </div>
+    </div></div>
   </div>
   {% if public_key %}<div class="field wide"><label>Öffentlicher Schlüssel dieser Anbindung (in ~/.ssh/authorized_keys des Zielbenutzers eintragen)</label>
     <pre class="mono card" id="pubkey">{{ public_key }}</pre><button class="small" type="button" data-copy="pubkey">kopieren</button></div>{% endif %}

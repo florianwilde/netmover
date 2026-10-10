@@ -512,12 +512,16 @@ def test_export_excludes_secrets_and_import_roundtrip(
 def test_keys_page_generate_import_select_delete(client: TestClient, state: NetMover) -> None:
     from netmover.crypto import generate_ssh_keypair
 
-    r = post(client, "/keys/generate", {"name": "paperless-lxc"})
+    r = post(client, "/credentials/keys/generate", {"name": "paperless-lxc"})
     assert r.status_code == 303
     private, public = generate_ssh_keypair()
-    r = post(client, "/keys/import", {"name": "alt", "private_key": private, "passphrase": ""})
+    r = post(
+        client,
+        "/credentials/keys/import",
+        {"name": "alt", "private_key": private, "passphrase": ""},
+    )
     assert r.status_code == 303
-    page = client.get("/keys").text
+    page = client.get("/credentials").text
     assert "paperless-lxc" in page and "alt" in page
     assert public.split()[1] in page  # öffentlicher Teil sichtbar
     for line in private.splitlines()[1:-1]:  # keine Zeile des privaten Schlüssels
@@ -546,27 +550,31 @@ def test_keys_page_generate_import_select_delete(client: TestClient, state: NetM
     )
     assert r.status_code == 303, r.text
     mounts = client.get("/mounts").text
-    assert "gespeichertem Schlüssel" in mounts and "„alt“" in mounts
+    assert "gespeicherten Zugangsdaten" in mounts and "„alt“" in mounts
     edit = client.get(f"/mounts/{_mount_id(state, 'paperless')}/edit").text
     assert f'<option value="{key_id}" selected>' in edit and 'value="root"' in edit
 
-    post(client, f"/keys/{key_id}/delete")
-    assert "noch benutzt" in client.get("/keys").text
+    post(client, f"/credentials/{key_id}/delete")
+    assert "noch benutzt" in client.get("/credentials").text
     post(client, f"/mounts/{_mount_id(state, 'paperless')}/delete")
-    post(client, f"/keys/{key_id}/delete")
-    page = client.get("/keys").text
+    post(client, f"/credentials/{key_id}/delete")
+    page = client.get("/credentials").text
     assert "gelöscht" in page and ">alt<" not in page
 
 
 def test_key_import_error_is_shown(client: TestClient) -> None:
-    post(client, "/keys/import", {"name": "x", "private_key": "kein schlüssel", "passphrase": ""})
-    assert "Kein lesbarer privater Schlüssel" in client.get("/keys").text
+    post(
+        client,
+        "/credentials/keys/import",
+        {"name": "x", "private_key": "kein schlüssel", "passphrase": ""},
+    )
+    assert "Kein lesbarer privater Schlüssel" in client.get("/credentials").text
 
 
 def test_no_escaped_attributes_in_pages(client: TestClient, state: NetMover) -> None:
     """Attribute in {{ … }} werden von Jinja maskiert – dann landet &#34; im HTML."""
 
-    post(client, "/keys/generate", {"name": "k"})
+    post(client, "/credentials/keys/generate", {"name": "k"})
     for url in (
         "/",
         "/mounts",
@@ -581,3 +589,35 @@ def test_no_escaped_attributes_in_pages(client: TestClient, state: NetMover) -> 
         html = client.get(url).text
         broken = re.findall(r"<[a-z][^<>]*=&#34;[^<>]*>", html)  # nur in Tags, nicht im Text
         assert not broken, (url, broken[:2])
+
+
+def test_credentials_page_passwords(
+    client: TestClient, state: NetMover, backend: FakeMountBackend
+) -> None:
+    r = post(
+        client,
+        "/credentials/passwords",
+        {"name": "NAS-Scanner", "username": "scanner", "password": "Geheim,123", "domain": ""},
+    )
+    assert r.status_code == 303
+    page = client.get("/credentials").text
+    assert "NAS-Scanner" in page and "scanner" in page and "Geheim,123" not in page
+    with state.session_factory() as s:
+        cid = s.scalar(select(Credential.id).where(Credential.name == "NAS-Scanner"))
+    form = client.get("/mounts/new").text
+    assert f'<option value="{cid}"' in form and "eigene Angaben für diese Anbindung" in form
+    backend.export("nas", "scans")
+    r = post(
+        client, "/mounts/new", {**MOUNT_FORM, "username": "", "password": "", "cred_id": str(cid)}
+    )
+    assert r.status_code == 303, r.text
+    assert "gespeicherten Zugangsdaten" in client.get("/mounts").text
+    mid = _mount_id(state, "Synology Scans")
+    assert "Quelle mit Löschen" in post(client, f"/mounts/{mid}/test").text
+    post(
+        client,
+        f"/credentials/{cid}/password",
+        {"username": "scanner2", "domain": "", "password": ""},
+    )
+    assert "gilt ab sofort für alle" in client.get("/credentials").text
+    assert client.get("/keys").headers["location"] == "/credentials"

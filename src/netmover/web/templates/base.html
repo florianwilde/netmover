@@ -36,7 +36,7 @@
   <div class="nav-group">
     <div class="nav-title">Verbindungen</div>
     {{ item('mounts', '/mounts', 'Anbindungen', (nav.mounts_bad ~ ' gestört') if nav and nav.mounts_bad else (nav.mounts if nav and nav.mounts else ''), 'bad' if nav and nav.mounts_bad else '') }}
-    {{ item('keys', '/keys', 'Schlüssel', nav.keys if nav and nav.keys else '') }}
+    {{ item('keys', '/credentials', 'Zugangsdaten', nav.keys if nav and nav.keys else '') }}
   </div>
   <div class="nav-group">
     <div class="nav-title">Automatisierung</div>

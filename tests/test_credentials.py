@@ -13,9 +13,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from netmover.admin import AdminError, MountInput, delete_mount, save_mount
+from netmover.credentials import (
+    delete_key,
+    fingerprint,
+    generate_key,
+    import_key,
+    list_keys,
+    rename_key,
+)
 from netmover.crypto import SecretBox, generate_ssh_keypair
 from netmover.db import session_scope
-from netmover.keys import delete_key, fingerprint, generate_key, import_key, list_keys, rename_key
 from netmover.models import Credential, CredentialKind, Mount, MountType
 from netmover.mounting.manager import MountConfig, MountManager
 from tests.sftp_stub import StubSFTPServer
@@ -142,7 +149,7 @@ def test_import_errors(session: Session, secretbox: SecretBox) -> None:
 
 def test_names(session: Session, secretbox: SecretBox) -> None:
     generate_key(session, secretbox, "eins")
-    with pytest.raises(AdminError, match="existiert bereits"):
+    with pytest.raises(AdminError, match="existieren bereits"):
         generate_key(session, secretbox, "eins")
     with pytest.raises(AdminError, match="reserviert"):
         generate_key(session, secretbox, "mount:x")
@@ -275,3 +282,102 @@ def test_list_keys_ignores_per_mount_credentials(
     save_mount(session, secretbox, manager, _sftp_input())
     assert list_keys(session) == []
     assert session.scalars(select(Credential)).one().managed is False
+
+
+# -- Gespeicherte Passwörter (0.5.0) ----------------------------------------------------------
+
+
+def _cifs(**kw: object) -> MountInput:
+    data: dict[str, object] = {
+        "name": "nas",
+        "type": MountType.CIFS,
+        "server": "10.0.10.6",
+        "share": "scans",
+    }
+    data.update(kw)
+    return MountInput(**data)  # type: ignore[arg-type]
+
+
+def test_stored_password_shared_by_mounts(
+    session: Session, secretbox: SecretBox, manager: MountManager
+) -> None:
+    from netmover.credentials import create_password, list_passwords, update_password
+
+    cred = create_password(session, secretbox, "NAS-Scanner", "scanner", "Pa$$,wort", "WG")
+    a, err = save_mount(session, secretbox, manager, _cifs(cred_id=str(cred.id)))
+    assert not err and a is not None
+    b, err = save_mount(
+        session, secretbox, manager, _cifs(name="archiv", share="archiv", cred_id=str(cred.id))
+    )
+    assert not err and b is not None
+    assert a.credential is cred and b.credential is cred and a.username is None
+    assert list_passwords(session)[0].used_by == ["archiv", "nas"]
+
+    # ein neues Passwort gilt für beide
+    update_password(session, secretbox, cred.id, "scanner", "neu!", "WG")
+    from netmover.admin import credential_for_test, mount_input_from_model
+
+    for m in (a, b):
+        data = mount_input_from_model(m)
+        assert data.cred_id == str(cred.id) and data.username == "scanner"
+        c = credential_for_test(data, m, secretbox, session)
+        assert c is not None and c.secret == "neu!" and c.domain == "WG"
+
+    # Anbindung löschen lässt die gespeicherten Zugangsdaten stehen
+    delete_mount(session, manager, a.id)
+    from netmover.credentials import delete_credential
+
+    with pytest.raises(AdminError, match="noch benutzt"):
+        delete_credential(session, cred.id)
+    delete_mount(session, manager, b.id)
+    assert delete_credential(session, cred.id) == "NAS-Scanner"
+
+
+def test_switch_from_own_to_stored_password_cleans_up(
+    session: Session, secretbox: SecretBox, manager: MountManager
+) -> None:
+    from netmover.credentials import create_password
+
+    m, _ = save_mount(session, secretbox, manager, _cifs(username="alt", password="pw"))
+    assert m is not None and m.credential is not None
+    own_id = m.credential.id
+    cred = create_password(session, secretbox, "geteilt", "scanner", "x")
+    m, err = save_mount(session, secretbox, manager, _cifs(cred_id=str(cred.id)), m.id)
+    assert not err and m is not None and m.credential is cred
+    assert session.get(Credential, own_id) is None
+    # zurück auf eigene Angaben: gespeicherter Eintrag bleibt unverändert
+    m, err = save_mount(session, secretbox, manager, _cifs(username="eigen", password="pw2"), m.id)
+    assert not err and m is not None and not m.credential.managed  # type: ignore[union-attr]
+    assert cred.username == "scanner" and secretbox.decrypt(cred.secret_enc) == "x"
+
+
+def test_stored_password_validation(session: Session, secretbox: SecretBox) -> None:
+    from netmover.credentials import create_password, update_password
+
+    with pytest.raises(AdminError, match="Passwort fehlt"):
+        create_password(session, secretbox, "a", "u", "")
+    with pytest.raises(AdminError):
+        create_password(session, secretbox, "a", "u", "zeile\numbruch")
+    cred = create_password(session, secretbox, "a", "u", "pw")
+    update_password(session, secretbox, cred.id, "u2", "")  # leer = unverändert
+    assert cred.username == "u2" and secretbox.decrypt(cred.secret_enc) == "pw"
+
+
+def test_stored_password_mount_actually_mounts(
+    session_factory: sessionmaker[Session],
+    secretbox: SecretBox,
+    manager: MountManager,
+    fake_backend: object,
+) -> None:
+    from netmover.credentials import create_password
+
+    fake_backend.export("10.0.10.6", "scans")  # type: ignore[attr-defined]
+    with session_scope(session_factory) as s:
+        cred = create_password(s, secretbox, "NAS", "scanner", "Pa$$wort", "WG")
+        m, _ = save_mount(s, secretbox, manager, _cifs(cred_id=str(cred.id)))
+        assert m is not None
+        mid = m.id
+    manager.mount(mid)
+    spec = fake_backend.calls[-1].spec  # type: ignore[attr-defined]
+    assert spec.credentials.username == "scanner" and spec.credentials.password == "Pa$$wort"
+    assert spec.credentials.domain == "WG"

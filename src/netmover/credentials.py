@@ -1,4 +1,9 @@
-"""Schlüsselverwaltung: gespeicherte SSH-Schlüssel für SFTP-Anbindungen.
+"""Zugangsdaten-Verwaltung: gespeicherte Passwörter und SSH-Schlüssel.
+
+Passwörter (SMB und SFTP): Benutzer, Passwort, optional Domäne – einmal gepflegt,
+von beliebig vielen Anbindungen genutzt. Ein neues Passwort gilt sofort für alle.
+
+SSH-Schlüssel:
 
 * Erzeugen (Ed25519) oder Importieren (Ed25519, ECDSA, RSA ≥ 2048 Bit; OpenSSH-
   oder PEM-Format, optional mit Passphrase). Eine Passphrase wird beim Import
@@ -63,7 +68,7 @@ def _validate_name(s: Session, name: str, exclude_id: int | None = None) -> str:
         raise AdminError("Namen mit „mount:“ sind für NetMover reserviert.")
     dup = s.scalar(select(Credential.id).where(Credential.name == name))
     if dup is not None and dup != exclude_id:
-        raise AdminError(f"Ein Schlüssel „{name}“ existiert bereits.")
+        raise AdminError(f"Zugangsdaten mit dem Namen „{name}“ existieren bereits.")
     return name
 
 
@@ -153,9 +158,115 @@ def _users(s: Session, key_id: int) -> list[str]:
     return sorted(s.scalars(select(Mount.name).where(Mount.cred_id == key_id)))
 
 
+# -- Passwörter -------------------------------------------------------------------------------
+
+
+@dataclass
+class PasswordInfo:
+    id: int
+    name: str
+    username: str
+    domain: str | None
+    created_at: datetime
+    used_by: list[str] = field(default_factory=list)
+
+
+def _validate_login(username: str, password: str | None, domain: str) -> None:
+    from netmover.validation import ValidationError, validate_secret, validate_username
+
+    try:
+        validate_username(username)
+        if domain:
+            validate_username(domain)
+        if password is not None:
+            validate_secret(password)
+    except ValidationError as exc:
+        raise AdminError(str(exc)) from None
+
+
+def create_password(
+    s: Session, secrets: SecretBox, name: str, username: str, password: str, domain: str = ""
+) -> Credential:
+    name = _validate_name(s, name)
+    username, domain = username.strip(), domain.strip()
+    if not password:
+        raise AdminError("Passwort fehlt.")
+    _validate_login(username, password, domain)
+    cred = Credential(
+        name=name,
+        kind=CredentialKind.PASSWORD,
+        username=username,
+        domain=domain or None,
+        secret_enc=secrets.encrypt(password),
+        managed=True,
+    )
+    s.add(cred)
+    s.flush()
+    return cred
+
+
+def update_password(
+    s: Session, secrets: SecretBox, cred_id: int, username: str, password: str, domain: str = ""
+) -> Credential:
+    """Benutzer/Domäne ändern; leeres Passwort = unverändert."""
+    cred = managed_password(s, cred_id)
+    username, domain = username.strip(), domain.strip()
+    _validate_login(username, password or None, domain)
+    cred.username = username
+    cred.domain = domain or None
+    if password:
+        cred.secret_enc = secrets.encrypt(password)
+    return cred
+
+
+def managed_password(s: Session, cred_id: int) -> Credential:
+    cred = s.get(Credential, cred_id)
+    if cred is None or not cred.managed or cred.kind is not CredentialKind.PASSWORD:
+        raise AdminError("Zugangsdaten existieren nicht.")
+    return cred
+
+
+def list_passwords(s: Session) -> list[PasswordInfo]:
+    rows = s.scalars(
+        select(Credential)
+        .where(Credential.managed.is_(True), Credential.kind == CredentialKind.PASSWORD)
+        .order_by(Credential.name)
+    ).all()
+    return [
+        PasswordInfo(c.id, c.name, c.username, c.domain, c.created_at, _users(s, c.id))
+        for c in rows
+    ]
+
+
+def delete_credential(s: Session, cred_id: int) -> str:
+    """Gespeicherte Zugangsdaten (Passwort oder Schlüssel) löschen – nur unbenutzt."""
+    cred = s.get(Credential, cred_id)
+    if cred is None or not cred.managed:
+        raise AdminError("Zugangsdaten existieren nicht.")
+    users = _users(s, cred_id)
+    if users:
+        raise AdminError(f"„{cred.name}“ wird noch benutzt von: {', '.join(users)}")
+    name = cred.name
+    s.delete(cred)
+    s.flush()
+    return name
+
+
+def rename_credential(s: Session, cred_id: int, name: str) -> None:
+    cred = s.get(Credential, cred_id)
+    if cred is None or not cred.managed:
+        raise AdminError("Zugangsdaten existieren nicht.")
+    cred.name = _validate_name(s, name, exclude_id=cred_id)
+
+
+# -- SSH-Schlüssel ------------------------------------------------------------------------------
+
+
 def list_keys(s: Session) -> list[KeyInfo]:
     keys = s.scalars(
-        select(Credential).where(Credential.managed.is_(True)).order_by(Credential.name)
+        select(Credential)
+        .where(Credential.managed.is_(True), Credential.kind == CredentialKind.SSH_KEY)
+        .order_by(Credential.name)
     ).all()
     result = []
     for k in keys:

@@ -28,13 +28,11 @@
   <div class="muted small mono">{{ m.type.value }} · {% if m.type == MountType.CIFS %}//{{ m.server }}/{{ m.share }}{% elif m.type == MountType.SFTP %}{{ m.server }}:{{ m.port or 22 }}{{ m.share }}{% else %}{{ m.server }}:{{ m.share }}{% endif %}
     {% if m.mountpoint %} → {{ m.mountpoint }}{% endif %}</div>
   {% if m.last_error %}<pre class="small text-err">{{ m.last_error }}</pre>{% endif %}
+  {% if key_names.get(m.id) %}<div class="small">Anmeldung mit gespeicherten Zugangsdaten <a href="/credentials">„{{ key_names[m.id] }}“</a></div>{% endif %}
   {% if m.type == MountType.SFTP %}
     <div class="small">Hostschlüssel: {% if m.host_key %}<span class="mono">{{ m.host_key.split()[0] }}</span> festgehalten
       <form class="inline" method="post" action="/mounts/{{ m.id }}/reset-hostkey" data-confirm="Hostschlüssel zurücksetzen? Nur tun, wenn der Server neu aufgesetzt wurde.">{{ csrf_field(csrf) }}<button class="small">zurücksetzen</button></form>
       {% else %}<span class="text-warn">noch nicht bestätigt – bitte „Testen“</span>{% endif %}</div>
-    {% if key_names.get(m.id) %}
-    <div class="small">Anmeldung mit gespeichertem Schlüssel <a href="/keys">„{{ key_names[m.id] }}“</a></div>
-    {% endif %}
     {% if pubkeys.get(m.id) %}
     <details class="small"><summary>Öffentlicher Schlüssel für authorized_keys</summary>
       <pre class="mono" id="pub-{{ m.id }}">{{ pubkeys[m.id] }}</pre>
