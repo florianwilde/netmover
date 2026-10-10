@@ -9,7 +9,7 @@
   {% if mount %}<input type="hidden" name="mount_id" value="{{ mount.id }}">{% endif %}
   <fieldset><legend>Verbindung <a class="legend-help" href="/help#anbindung-felder" title="Hilfe">?</a></legend><div class="fields">
     {{ field('name', 'Name', d.name, errors=errors, attrs='required maxlength="100"', hint=('Verzeichnis: ' ~ mount.mountpoint if mount and mount.mountpoint else '')) }}
-    {{ select('type', 'Typ', [('cifs', 'SMB/CIFS'), ('nfs4', 'NFS 4'), ('nfs3', 'NFS 3'), ('sftp', 'SFTP (nur Ziel)')], d.type.value, errors=errors) }}
+    {{ select('type', 'Typ', [('cifs', 'SMB/CIFS'), ('nfs4', 'NFS 4'), ('nfs3', 'NFS 3'), ('sftp', 'SFTP')], d.type.value, errors=errors) }}
     {{ field('server', 'Server', d.server, errors=errors, placeholder='192.168.1.10 oder nas.lan', attrs='required') }}
     <div class="field{{ ' has-error' if errors.get('share') }}">
       <label for="f-share">Freigabe / Pfad</label>

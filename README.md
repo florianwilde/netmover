@@ -3,7 +3,7 @@
 Selbst gehosteter Dienst mit Weboberfläche, der **SMB/CIFS- und NFS-Freigaben
 verwaltet** und **Dateien zeitgesteuert verschiebt** – „alle N Sekunden Ordner 1
 prüfen, passende Dateien nach Ordner 2 bringen“. Quelle und Ziel sind
-unabhängig voneinander per SMB, NFS, lokal oder (nur als Ziel) per SFTP angebunden.
+unabhängig voneinander per SMB, NFS, SFTP oder (als Ziel) lokal angebunden.
 
 Typischer Einsatz: Ein Synology-NAS nimmt Scans entgegen, NetMover schiebt sie alle
 30 Sekunden in den Eingangsordner von Paperless-ngx.
@@ -176,7 +176,7 @@ Lege in NetMover die *Anbindung → Neue Anbindung* an:
 | Feld | Wert |
 |---|---|
 | Name | `Paperless` |
-| Typ | SFTP (nur Ziel) |
+| Typ | SFTP |
 | Server / SSH-Port | IP des LXC / `22` |
 | Freigabe / Pfad | `/opt/paperless_data/consume` |
 | Anmeldeart | SSH-Schlüssel |

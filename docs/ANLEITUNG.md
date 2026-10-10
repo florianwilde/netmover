@@ -50,11 +50,13 @@ Passwort festlegt. Passwort ändern: *System → Einstellungen*.
 |---|---|---|
 | **SMB/CIFS** | Windows-Freigaben, Synology, QNAP, … | Quelle und Ziel |
 | **NFS 4 / NFS 3** | Linux-Server, NAS mit NFS | Quelle und Ziel |
-| **SFTP** | Server, die nur per SSH erreichbar sind (z. B. ein LXC mit Paperless) | nur Ziel |
+| **SFTP** | Server, die nur per SSH erreichbar sind (z. B. ein LXC mit Paperless) | Quelle und Ziel |
 
 SMB- und NFS-Anbindungen werden **eingehängt** und erscheinen unter
 `/mnt/netmover/<name>`. SFTP wird nicht eingehängt, NetMover verbindet sich bei
-jedem Lauf.
+jedem Lauf. Als **Quelle** gelten bei SFTP dieselben Sicherheitsprüfungen; weil
+SFTP-Server Änderungszeiten nur sekundengenau melden, sollte das
+Stabilitätsfenster dort mindestens 2 Sekunden betragen.
 
 ### Felder {#anbindung-felder}
 

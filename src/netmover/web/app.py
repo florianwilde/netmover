@@ -792,9 +792,8 @@ def _rule_form(
         d=d,
         errors=errors,
         rule_id=rule_id,
-        src_mounts=[m for m in mounts if m.type.is_kernel_mount],
-        src_options=[("", "– wählen –")]
-        + [(m.id, m.name) for m in mounts if m.type.is_kernel_mount],
+        src_mounts=mounts,
+        src_options=[("", "– wählen –")] + [(m.id, f"{m.name} ({m.type.value})") for m in mounts],
         dst_options=[("", "– wählen –")] + [(m.id, f"{m.name} ({m.type.value})") for m in mounts],
     )
 

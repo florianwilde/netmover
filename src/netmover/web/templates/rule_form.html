@@ -4,7 +4,7 @@
 {% block content %}
 <h1>{{ 'Regel bearbeiten' if rule_id else 'Neue Regel' }}</h1>
 {% if errors.get('_') %}<p class="msg error">{{ errors['_'] }}</p>{% endif %}
-{% if not src_mounts %}<p class="msg info">Zuerst eine SMB- oder NFS-Anbindung als Quelle <a href="/mounts/new">anlegen</a>.</p>{% endif %}
+{% if not src_mounts %}<p class="msg info">Zuerst eine Anbindung als Quelle <a href="/mounts/new">anlegen</a>.</p>{% endif %}
 <form class="form" method="post" data-dynamic>
   <input type="hidden" name="csrf_token" value="{{ csrf }}">
   <fieldset><legend>Allgemein <a class="legend-help" href="/help#regeln" title="Hilfe">?</a></legend><div class="fields">
