@@ -585,3 +585,10 @@ class MountManager:
         except (OSError, OperationTimeout):
             return None
         return st.f_blocks * st.f_frsize, st.f_bavail * st.f_frsize
+
+    def sftp_config_for(self, mount_id: int) -> SftpConfig:
+        """Entschlüsselte Verbindungsdaten einer SFTP-Anbindung für einen Regellauf."""
+        m, cred = self._load(mount_id)
+        if m.type is not MountType.SFTP:
+            raise SftpError(f"„{m.name}“ ist keine SFTP-Anbindung")
+        return sftp_config(MountConfig.from_model(m), cred)

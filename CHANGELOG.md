@@ -34,6 +34,26 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
   wachsendem Abstand neu eingehängt.
 - Mountpoints ausschließlich unter `/mnt/netmover/<slug>`, müssen vor dem
   Einhängen leer sein und werden nach dem Aushängen entfernt.
+- Mover-Engine: Stabilitätsprüfung (Größe **und** mtime nach dem
+  Stabilitätsfenster), unfertige/versteckte Dateien und Synology-Ordner
+  (`@eaDir`, `#recycle`) werden ignoriert, Glob (mehrere Muster mit `;`) oder Regex.
+- Atomares Schreiben: `.netmover-<uuid>.part` → `fsync` → Größenprüfung →
+  Metadaten → Quellprüfung → Umbenennen ohne Überschreiben (`link`, Rückfall auf
+  `rename`) → erst dann Quelle löschen; gleiches Gerät ohne Kopie per `link`.
+- Namenskollisionen: umbenennen (`scan-1.pdf`, `scan-2.pdf`, …, jedes Mal gegen
+  das Dateisystem geprüft), überspringen oder überschreiben.
+- Buchführung im Kopiermodus (`copied_files`); verhindert auch Duplikate, wenn im
+  Verschiebemodus die Quelle nicht gelöscht werden kann.
+- Platzprüfung vor jeder Kopie (Größe + 5 %), Übernahme von mtime und Modus,
+  optional Eigentümer; Metadaten-Fehler sind Hinweise, keine Fehler; `chown` auf
+  CIFS und auf NFS mit Root-Squash wird übersprungen und einmalig gemeldet.
+- Quarantäneordner für Dateien, die wiederholt scheitern.
+- SFTP-Ziel mit demselben atomaren Ablauf (`rename` ohne Überschreiben,
+  `posix-rename` beim Überschreiben, `fsync`/`statvfs` über OpenSSH-Erweiterungen).
+- Regellauf mit Lock pro Regel, Lebenszeichen der Anbindungen und Worker mit
+  Inaktivitäts-Zeitlimit; ein hängender Worker blockiert nur seine eigene Regel.
+- Lokale Ziele unter dem Mount-Basisverzeichnis werden abgelehnt (dort muss die
+  Anbindung als Ziel gewählt werden, damit „eingehängt?“ geprüft wird).
 
 ### Behoben
 - Löschen von Zugangsdaten, die noch von einem Mount benutzt werden, trennt den

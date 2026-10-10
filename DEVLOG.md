@@ -9,9 +9,51 @@ Zeiten in Ortszeit (Europe/Berlin).
 |------------|-------|-------|-------|---------|----------------------------------------|
 | 2026-10-10 | 17:21 | 17:27 | 0:06  | 1       | Gerüst, Datenmodell, Migrationen       |
 | 2026-10-10 | 18:35 | 18:48 | 0:13  | 2       | Mount-Schicht, Validierung, SFTP       |
-| **Summe**  |       |       | **0:19** |      |                                        |
+| 2026-10-10 | 18:53 | 19:07 | 0:14  | 3       | Mover-Logik                            |
+| **Summe**  |       |       | **0:33** |      |                                        |
 
 ---
+
+## 2026-10-10 · 18:53–19:07 · Schritt 3: Mover-Logik
+
+**Erledigt**
+- Remote `origin` (Gitea) war eingerichtet → `main` gepusht.
+- `mover/scan.py`, `naming.py`, `ledger.py`, `destinations.py` (lokal/Kernel-Mount
+  und SFTP), `engine.py` (Ablauf pro Lauf), `runner.py` (Lock, Lebenszeichen,
+  Watchdog, Ziel-Aufbau).
+- `timeouts.run_with_watchdog`: Inaktivitäts-Zeitlimit mit `CancelToken`.
+- 60 neue Tests (183 gesamt), u. a. Abbruch in jeder Phase, Wettlauf um
+  Dateinamen, hängender Lauf, SFTP-Ziel mit Kollision gegen echten SFTP-Server.
+- Mutationsprobe: 9 eingebaute Fehler (keine Stabilitätsprüfung, kein fsync,
+  keine Quellprüfung, Wettlauf, direkt unter Endnamen schreiben, keine
+  Buchführung, keine Platzprüfung, Lock-Freigabe, kein Watchdog). Zwei überlebten
+  zunächst (fsync, enges Wettlauf-Fenster) → zwei Tests ergänzt; jetzt alle erkannt.
+
+**Entscheidungen**
+- Zeitlimit als **Inaktivitäts**-Watchdog statt Gesamtlaufzeit: große Dateien
+  über langsame Leitungen werden nicht abgebrochen, hängende Zugriffe schon.
+- Regel-Lock gibt erst der Worker selbst frei. Nach einer Zeitüberschreitung
+  bleibt die Regel blockiert, bis der hängende Worker endet – so kopieren nie
+  zwei Läufe dieselbe Datei gleichzeitig. Statusseite zeigt „läuft seit …“.
+- Stabilität innerhalb eines Laufs (zweite Messung nach dem Fenster) plus
+  Quellprüfung direkt vor dem Umbenennen.
+- Umbenennen ohne Überschreiben per `link()` (atomar, EEXIST bei Kollision);
+  ohne Hardlink-Unterstützung (oft CIFS) Rückfall auf „prüfen + rename“.
+- Bei Rekursion wird die Ordnerstruktur im Ziel beibehalten; Trennung nach
+  Quell-Unterordnern geht über mehrere Regeln mit eigenem Unterpfad.
+- Quarantänepfad ist relativ zur Quell-Anbindung (gleiches Dateisystem → rename).
+- `copied_files` wird nach jedem *vollständigen* Scan bereinigt (statt nur beim
+  Protokoll-Aufräumen) – zeitnäher, und nie nach einem abgebrochenen Scan.
+- ESTALE/EIO/ENOTCONN mitten im Lauf → Lauf abbrechen (nicht jede Datei einzeln
+  scheitern lassen, nicht gegen den Quarantäne-Zähler zählen).
+
+**Stolpersteine**
+- `tmp_path` liegt auf einem Gerät → Tests liefen erst über den Schnellweg
+  (`link`) statt über den Kopierweg; Fixture `cross_device` erzwingt ihn.
+- Prüfung „lokales Ziel nicht unter Mount-Basis“ nutzte nur `resolve()` – ein
+  Symlink umgeht das. Jetzt wörtlich **und** aufgelöst.
+- Lock-Übergabe an den Worker: doppelte Freigabe bei sehr schnellem Lauf
+  (beim Gegenlesen gefunden, vor dem ersten Testlauf behoben).
 
 ## 2026-10-10 · 18:35–18:48 · Schritt 2: Mount-Schicht, Validierung, SFTP
 
