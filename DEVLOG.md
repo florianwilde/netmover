@@ -11,9 +11,43 @@ Zeiten in Ortszeit (Europe/Berlin).
 | 2026-10-10 | 18:35 | 18:48 | 0:13  | 2       | Mount-Schicht, Validierung, SFTP       |
 | 2026-10-10 | 18:53 | 19:07 | 0:14  | 3       | Mover-Logik                            |
 | 2026-10-10 | 19:10 | 19:17 | 0:07  | 4       | Scheduler, Protokoll, Benachrichtigung |
-| **Summe**  |       |       | **0:40** |      |                                        |
+| 2026-10-10 | 19:18 | 19:34 | 0:16  | 5       | Weboberfläche und Anmeldung            |
+| **Summe**  |       |       | **0:56** |      |                                        |
 
 ---
+
+## 2026-10-10 · 19:18–19:34 · Schritt 5: Weboberfläche und Anmeldung
+
+**Erledigt**
+- `admin.py` (Formulare prüfen/speichern, frameworkunabhängig), `transfer.py`
+  (Export/Import), `web/auth.py`, `web/app.py`, 14 Templates, `app.css`, `app.js`.
+- htmx 2.0.4 lokal eingebunden (SHA-256
+  `e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447`).
+- 25 Web-Tests (232 gesamt); Rauchtest mit echtem `netmover serve`.
+
+**Entscheidungen**
+- Einmaliger Einrichtungscode im Log, damit nicht irgendwer im LAN beim ersten
+  Aufruf das Admin-Passwort setzt.
+- Strikte CSP (`script-src 'self'; style-src 'self'`) – deshalb keine
+  Inline-Styles; Füllstand als `<meter>`; htmx-Indikator-Styles abgeschaltet.
+- Jede Anbindung pflegt eigene Zugangsdaten (Datenmodell erlaubt Teilen, die
+  Oberfläche bleibt dadurch einfacher).
+- Verbindungsdaten nur im ausgehängten Zustand änderbar; SFTP-Hostschlüssel wird
+  bei Server-/Portwechsel verworfen.
+- „Jetzt ausführen“ startet im Hintergrund (Ergebnis im Protokoll); „Probelauf“
+  wartet und zeigt die Tabelle.
+- Webhook-URL wird nur gekürzt angezeigt; unverändert zurückgeschickte Maske = behalten.
+- Import: vorhandene Namen überspringen, importierte Regeln deaktiviert,
+  CIFS-Anbindungen ohne `auto_mount` (Zugangsdaten fehlen).
+- APScheduler-Logs auf WARNING (sonst alle 30 s eine Zeile pro Job).
+
+**Stolpersteine**
+- Starlette-Session erkennt `setdefault(...).append()` nicht als Änderung →
+  zweite Flash-Meldung ging verloren. Jetzt Neuzuweisung.
+- `request.form()` liefert `starlette.datastructures.UploadFile`, nicht die
+  FastAPI-Unterklasse → Import erkannte nie eine Datei.
+- Settings-Import öffnete eine zweite DB-Verbindung in offener Schreib-
+  transaktion (SQLite: „database is locked“) → Einstellungen nach dem Commit.
 
 ## 2026-10-10 · 19:10–19:17 · Schritt 4: Scheduler und Protokollierung
 

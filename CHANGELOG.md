@@ -67,7 +67,23 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
   auch für Anbindungen, deren Wiederherstellung scheitert.
 - Dienststart: Migration → Schlüssel → Anbindungen wiederherstellen → Scheduler;
   beim Beenden werden Mounts nicht ausgehängt.
+- Weboberfläche (FastAPI, Jinja2, HTMX ohne Build-Schritt, handyfähig, Hell/Dunkel):
+  Status, Anbindungen, Regeln, Protokoll, Einstellungen.
+- Ersteinrichtung mit Pflicht-Passwort (≥ 10 Zeichen) und einmaligem
+  Einrichtungscode aus dem Log; Anmeldung mit Argon2, Sperre nach 5 Fehlversuchen.
+- Session-Cookie `HttpOnly`, `SameSite=Lax` (optional `Secure`), CSRF-Token bei
+  jedem POST, strikte Content-Security-Policy ohne Inline-Skripte/-Styles.
+- Mount-Formular mit „Testen“ vor dem Speichern; Passwörter werden nie
+  angezeigt (leer = unverändert); SFTP-Schlüsselpaar wird erzeugt und der
+  öffentliche Schlüssel zum Kopieren angezeigt.
+- Probelauf zeigt in einer Tabelle, welche Datei wohin ginge.
+- Protokoll filterbar nach Regel und Status, Einzeldateien aufklappbar.
+- Export/Import der Konfiguration als JSON (ohne Zugangsdaten und Webhook-URL).
+- `GET /healthz`, `netmover serve`, `netmover reset-password`.
 
 ### Behoben
+- Import-Upload wurde nie erkannt (falsche `UploadFile`-Klasse geprüft).
+- Hinweise nach Aktionen gingen verloren, wenn schon ein Hinweis in der
+  Session stand (Session erkennt nur Neuzuweisungen als Änderung).
 - Löschen von Zugangsdaten, die noch von einem Mount benutzt werden, trennt den
   Mount nicht mehr stillschweigend ab, sondern wird von der Datenbank abgelehnt.

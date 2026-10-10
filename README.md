@@ -3,7 +3,7 @@
 Selbst gehosteter Dienst mit Web-Oberfläche, der SMB/CIFS- und NFS-Freigaben
 verwaltet und Dateien zeitgesteuert zwischen ihnen verschiebt.
 
-> Status: in Entwicklung (Schritt 4 von 6). Vollständige Doku folgt mit Schritt 6.
+> Status: in Entwicklung (Schritt 5 von 6). Vollständige Doku folgt mit Schritt 6.
 
 ## Entwicklung
 

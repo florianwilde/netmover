@@ -62,6 +62,9 @@ def setup_logging(level: str = "INFO", fmt: str = "logfmt") -> None:
         lg = logging.getLogger(name)
         lg.handlers[:] = []
         lg.propagate = True
+    # APScheduler meldet jeden Job-Start auf INFO – bei 30-s-Intervallen nur Rauschen.
+    if level != "DEBUG":
+        logging.getLogger("apscheduler").setLevel(logging.WARNING)
 
 
 def get_logger(name: str) -> logging.Logger:
