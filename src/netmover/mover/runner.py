@@ -34,6 +34,7 @@ from netmover.mover.destinations import (
 )
 from netmover.mover.engine import Engine, RuleSnapshot, RunResult
 from netmover.mover.ledger import Ledger
+from netmover.mover.sources import LocalSource, SftpSource, Source
 from netmover.timeouts import CancelToken, OperationTimeout, run_with_watchdog
 from netmover.validation import ValidationError, safe_abspath, safe_relpath
 
@@ -46,6 +47,7 @@ class RulePlan:
     name: str
     src_mount_id: int
     src_type: MountType
+    src_name: str
     src_subpath: str
     dst_mount_id: int | None
     dst_type: MountType | None
@@ -96,6 +98,7 @@ def load_plan(session: Session, rule_id: int) -> RulePlan:
         name=r.name,
         src_mount_id=r.src_mount_id,
         src_type=r.src_mount.type,
+        src_name=r.src_mount.name,
         src_subpath=safe_relpath("src_subpath", r.src_subpath),
         dst_mount_id=r.dst_mount_id,
         dst_type=dst.type if dst is not None else None,
@@ -166,10 +169,6 @@ class RuleRunner:
         rule_id: int,
         handed_over: list[bool],
     ) -> RunResult:
-        if not plan.src_type.is_kernel_mount:
-            return RunResult(
-                RunStatus.ERROR, dry, message="SFTP-Anbindungen sind nur als Ziel möglich"
-            )
         try:
             src_mp = self.mounts.check_alive(plan.src_mount_id)
             dst_mp = (
@@ -179,29 +178,33 @@ class RuleRunner:
             )
         except MountUnavailable as exc:
             return RunResult(RunStatus.ERROR, dry, message=str(exc), unavailable=True)
-        if src_mp is None:  # nur bei SFTP, oben bereits ausgeschlossen
-            return RunResult(RunStatus.ERROR, dry, message="Quelle ist kein Kernel-Mount")
-        src_root = src_mp / plan.src_subpath if plan.src_subpath else src_mp
-        quarantine_root = src_mp / plan.quarantine_path if plan.quarantine_path else None
 
         try:
+            make_source = self._source_factory(plan, src_mp)
+            src_root = src_mp / plan.src_subpath if src_mp and plan.src_subpath else src_mp
             make_dest = self._dest_factory(plan, dst_mp, src_root)
         except (ValidationError, TransferError, SftpError) as exc:
             return RunResult(RunStatus.ERROR, dry, message=str(exc))
 
         def work(token: CancelToken) -> RunResult:
-            dest = make_dest()
+            source = make_source()
+            try:
+                dest = make_dest()
+            except BaseException:
+                source.close()
+                raise
             try:
                 return self.engine.execute(
                     plan.snapshot,
-                    src_root,
+                    source,
                     dest,
                     token,
                     dry_run=dry,
-                    quarantine_root=quarantine_root,
+                    quarantine_rel=plan.quarantine_path,
                 )
             finally:
                 dest.close()
+                source.close()
 
         def finish() -> None:
             self._started.pop(rule_id, None)
@@ -230,8 +233,26 @@ class RuleRunner:
         paths = {path.absolute(), path.resolve()}
         return any(p == b or b in p.parents for p in paths for b in bases)
 
+    def _source_factory(self, plan: RulePlan, src_mp: Path | None) -> Callable[[], Source]:
+        if plan.src_type is MountType.SFTP:
+            scfg = self.mounts.sftp_config_for(plan.src_mount_id)
+            label = plan.src_name or "sftp"
+
+            def make_sftp() -> Source:
+                return SftpSource(connect(scfg), scfg.base_path, plan.src_subpath, label=label)
+
+            return make_sftp
+        if src_mp is None:
+            raise TransferError("Quell-Anbindung ist nicht eingehängt")
+        root = src_mp
+
+        def make_local() -> Source:
+            return LocalSource(root, plan.src_subpath)
+
+        return make_local
+
     def _dest_factory(
-        self, plan: RulePlan, dst_mp: Path | None, src_root: Path
+        self, plan: RulePlan, dst_mp: Path | None, src_root: Path | None
     ) -> Callable[[], Destination]:
         if plan.dst_mount_id is None:
             root = Path(safe_abspath("dst_path", plan.dst_path))
@@ -263,7 +284,7 @@ class RuleRunner:
             kind = "cifs" if plan.dst_type is MountType.CIFS else "nfs"
             create = True
 
-        if local_root.resolve() == src_root.resolve():
+        if src_root is not None and local_root.resolve() == src_root.resolve():
             raise ValidationError("dst_path", "Quelle und Ziel sind derselbe Ordner")
 
         def make_local() -> Destination:

@@ -251,7 +251,7 @@ def test_source_not_deletable_keeps_target_and_prevents_duplicate(
             raise PermissionError(errno.EACCES, "Permission denied", str(path))
         real_unlink(path)  # type: ignore[arg-type]
 
-    monkeypatch.setattr("netmover.mover.engine.os.unlink", deny)
+    monkeypatch.setattr("netmover.mover.sources.os.unlink", deny)
     first = run(engine, snap(rule_id), src, dst)
     assert first.items[0].status is ItemStatus.FAILED
     assert "nicht löschbar" in (first.items[0].message or "")

@@ -15,12 +15,12 @@ from __future__ import annotations
 
 import dataclasses
 import errno
-import os
-import stat
+import posixpath
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from netmover.logging_setup import event, get_logger
 from netmover.models import (
@@ -40,7 +40,8 @@ from netmover.mover.destinations import (
 )
 from netmover.mover.ledger import FailureInfo, Ledger
 from netmover.mover.naming import collision_candidates
-from netmover.mover.scan import BUSY, Candidate, FileState, Matcher, current_state, scan
+from netmover.mover.scan import BUSY, Candidate, FileState, Matcher
+from netmover.mover.sources import LocalSource, Source, SourceMissing
 from netmover.timeouts import Cancelled, CancelToken
 
 log = get_logger(__name__)
@@ -114,6 +115,17 @@ def _mb(n: int) -> str:
     return f"{n / 1024 / 1024:.1f} MB"
 
 
+@dataclass(frozen=True)
+class _SourceFile:
+    """Adapter: eine Datei einer :class:`Source` mit ``open()`` wie ein ``Path``."""
+
+    source: Source
+    rel: str
+
+    def open(self, mode: str = "rb") -> Any:
+        return self.source.open(self.rel)
+
+
 class Engine:
     def __init__(
         self,
@@ -140,20 +152,27 @@ class Engine:
     def execute(
         self,
         rule: RuleSnapshot,
-        src_root: Path,
+        source: Source | Path,
         dest: Destination,
         token: CancelToken,
         *,
         dry_run: bool = False,
+        quarantine_rel: str | None = None,
         quarantine_root: Path | None = None,
     ) -> RunResult:
+        """``source``: eine :class:`Source` oder (Kurzform) ein lokales Verzeichnis.
+        Quarantäne relativ zur Wurzel der Anbindung (``quarantine_rel``) oder – bei
+        der Kurzform – als Pfad innerhalb des Verzeichnisses (``quarantine_root``)."""
         result = RunResult(dry_run=dry_run)
+        src = source if isinstance(source, Source) else LocalSource(source)
+        if quarantine_root is not None and isinstance(src, LocalSource):
+            quarantine_rel = str(quarantine_root.relative_to(src.root))
         try:
-            self._execute(rule, src_root, dest, token, result, dry_run, quarantine_root)
+            self._execute(rule, src, dest, token, result, dry_run, quarantine_rel)
         except Cancelled:
             result.status = RunStatus.ERROR
             result.message = "Lauf abgebrochen"
-        except RunAborted as exc:
+        except (RunAborted, SourceMissing) as exc:
             result.status = RunStatus.ERROR
             result.message = str(exc)
         except TransferError as exc:
@@ -170,26 +189,23 @@ class Engine:
     def _execute(
         self,
         rule: RuleSnapshot,
-        src_root: Path,
+        src: Source,
         dest: Destination,
         token: CancelToken,
         result: RunResult,
         dry_run: bool,
-        quarantine_root: Path | None,
+        quarantine_rel: str | None,
     ) -> None:
-        if not src_root.is_dir():
-            raise RunAborted(f"Quellordner {src_root} existiert nicht")
+        src.check_root()
         if not dry_run:
             dest.prepare()
         token.check()
 
-        exclude: set[Path] = set()
-        if quarantine_root is not None:
-            exclude.add(quarantine_root.resolve())
-        if isinstance(dest, LocalDestination):
-            exclude.add(dest.root.resolve())  # Ziel innerhalb der Quelle nie erneut scannen
+        exclude = frozenset({quarantine_rel}) if quarantine_rel else frozenset()
+        if isinstance(dest, LocalDestination) and isinstance(src, LocalSource):
+            src.exclude_paths.add(dest.root.resolve())  # Ziel innerhalb der Quelle auslassen
         matcher = Matcher(rule.pattern, rule.pattern_type)
-        candidates = list(scan(src_root, matcher, rule.recursive, frozenset(exclude)))
+        candidates = src.scan(matcher, rule.recursive, exclude)
         result.seen = len(candidates)
         token.check()
 
@@ -227,13 +243,13 @@ class Engine:
 
         # Stabilität (Fallstrick 1): zwei frische Messungen (öffnen + fstat, nicht
         # der Verzeichnis-Cache) im Abstand des Stabilitätsfensters.
-        first: dict[str, FileState | None] = {c.relpath: current_state(c.path) for c in pending}
+        first: dict[str, FileState | None] = {c.relpath: src.state(c.relpath) for c in pending}
         if pending and rule.stability_seconds > 0:
             self._sleep(rule.stability_seconds)
             token.check()
         stable: list[Candidate] = []
         for c in pending:
-            before, st = first[c.relpath], current_state(c.path)
+            before, st = first[c.relpath], src.state(c.relpath)
             if before is None or st is None:
                 continue  # inzwischen verschwunden – nichts zu tun
             if st != before or st == BUSY:
@@ -255,7 +271,7 @@ class Engine:
         failures = self.ledger.failures(rule.id)
         for c in stable:
             token.check()
-            result.add(self._process(rule, c, dest, token, dry_run, quarantine_root, failures))
+            result.add(self._process(rule, c, src, dest, token, dry_run, quarantine_rel, failures))
 
         if unchanged:
             result.message = f"{unchanged} bereits übertragen"
@@ -263,9 +279,9 @@ class Engine:
     # -- einzelne Datei ------------------------------------------------------------------
 
     def _meta(
-        self, rule: RuleSnapshot, path: Path, dest: Destination
+        self, rule: RuleSnapshot, src: Source, rel: str, dest: Destination
     ) -> tuple[MetaOptions, list[str]]:
-        st = os.stat(path)
+        st = src.stat(rel)
         notes: list[str] = []
         owner = rule.set_owner
         if owner is not None:
@@ -280,17 +296,18 @@ class Engine:
                 if self._warn_once(f"{rule.id}:nfs-chown"):
                     reason = "Root-Squash aktiv" if rule.dst_root_squash else "Schreibtest fehlt"
                     notes.append(f"NFS-Ziel: chown übersprungen ({reason})")
-        mode = rule.set_mode if rule.set_mode is not None else stat.S_IMODE(st.st_mode)
-        return MetaOptions(st.st_atime_ns, st.st_mtime_ns, mode, owner), notes
+        mode = rule.set_mode if rule.set_mode is not None else st.mode
+        return MetaOptions(st.atime_ns, st.mtime_ns, mode, owner), notes
 
     def _process(
         self,
         rule: RuleSnapshot,
         c: Candidate,
+        src: Source,
         dest: Destination,
         token: CancelToken,
         dry_run: bool,
-        quarantine_root: Path | None,
+        quarantine_rel: str | None,
         failures: dict[str, FailureInfo],
     ) -> ItemResult:
         size = c.state.size
@@ -298,7 +315,7 @@ class Engine:
 
         # Quarantäne für wiederholt scheiternde Dateien
         if (
-            quarantine_root is not None
+            quarantine_rel is not None
             and failure is not None
             and failure.attempts >= rule.quarantine_after
             and (failure.size, failure.mtime_ns) == (c.state.size, c.state.mtime_ns)
@@ -307,11 +324,11 @@ class Engine:
                 return ItemResult(
                     c.relpath,
                     ItemStatus.PLANNED,
-                    str(quarantine_root / c.relpath),
+                    src.describe_root_rel(posixpath.join(quarantine_rel, c.relpath)),
                     size,
                     "würde in Quarantäne verschoben",
                 )
-            return self._quarantine(rule, c, quarantine_root, failure.attempts)
+            return self._quarantine(rule, c, src, quarantine_rel, failure.attempts)
 
         try:
             planned = dest.plan(c.relpath, rule.on_collision)
@@ -351,16 +368,25 @@ class Engine:
             )
 
         def verify() -> None:
-            if current_state(c.path) != c.state:
+            if src.state(c.relpath) != c.state:
                 raise SourceChanged("Quelle hat sich während der Übertragung geändert")
 
         try:
-            meta, notes = self._meta(rule, c.path, dest)
+            meta, notes = self._meta(rule, src, c.relpath, dest)
             res = None
-            if rule.action is RuleAction.MOVE:
-                res = dest.move_same_device(c.path, c.relpath, rule.on_collision, meta)
+            local = src.local_path(c.relpath)
+            if rule.action is RuleAction.MOVE and local is not None:
+                res = dest.move_same_device(local, c.relpath, rule.on_collision, meta)
             if res is None:
-                res = dest.commit(c.path, size, c.relpath, rule.on_collision, meta, verify, token)
+                res = dest.commit(
+                    _SourceFile(src, c.relpath),
+                    size,
+                    c.relpath,
+                    rule.on_collision,
+                    meta,
+                    verify,
+                    token,
+                )
         except CollisionSkip:
             return ItemResult(
                 c.relpath,
@@ -385,7 +411,7 @@ class Engine:
 
         if not res.source_consumed:
             try:
-                os.unlink(c.path)
+                src.delete(c.relpath)
             except OSError as exc:
                 # Ziel ist vollständig – Buchführung verhindert Duplikate im nächsten Lauf.
                 self.ledger.record_copy(rule.id, c.relpath, size, c.state.mtime_ns, target)
@@ -412,15 +438,18 @@ class Engine:
         return ItemResult(c.relpath, ItemStatus.FAILED, None, c.state.size, msg)
 
     def _quarantine(
-        self, rule: RuleSnapshot, c: Candidate, root: Path, attempts: int
+        self, rule: RuleSnapshot, c: Candidate, src: Source, q_rel: str, attempts: int
     ) -> ItemResult:
+        target = ""
         try:
             for cand in collision_candidates(c.relpath):
-                target = root / cand
-                if os.path.lexists(target):
+                target = posixpath.join(q_rel, cand)
+                if src.exists_root_rel(target):
                     continue
-                target.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
-                os.rename(c.path, target)
+                try:
+                    src.move_to(c.relpath, target)
+                except FileExistsError:
+                    continue
                 break
             else:
                 raise TransferError("kein freier Name im Quarantäneordner")
@@ -434,7 +463,7 @@ class Engine:
         return ItemResult(
             c.relpath,
             ItemStatus.QUARANTINED,
-            str(target),
+            src.describe_root_rel(target),
             c.state.size,
             f"nach {attempts} Fehlversuchen in Quarantäne verschoben",
         )

@@ -496,8 +496,6 @@ def parse_rule_form(s: Session, form: Mapping[str, str]) -> tuple[RuleInput, Err
     src = s.get(Mount, d.src_mount_id) if d.src_mount_id else None
     if src is None:
         errors["src_mount_id"] = "Quelle wählen."
-    elif not src.type.is_kernel_mount:
-        errors["src_mount_id"] = "SFTP-Anbindungen sind nur als Ziel möglich."
     try:
         d.src_subpath = safe_relpath("src_subpath", d.src_subpath)
     except ValidationError as exc:
@@ -530,6 +528,10 @@ def parse_rule_form(s: Session, form: Mapping[str, str]) -> tuple[RuleInput, Err
             errors["pattern"] = f"Ungültiger regulärer Ausdruck: {exc}"
     if d.stability_seconds >= d.op_timeout_seconds:
         errors["stability_seconds"] = "Muss kleiner als das Zeitlimit sein."
+    elif src is not None and src.type is MountType.SFTP and d.stability_seconds < 2:
+        errors["stability_seconds"] = (
+            "Bei SFTP-Quellen mindestens 2 s – der Server meldet Zeiten nur sekundengenau."
+        )
     if d.set_owner and not _OWNER_RE.fullmatch(d.set_owner):
         errors["set_owner"] = "Als „uid:gid“ angeben, z. B. „1000:1000“."
     try:

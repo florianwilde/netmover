@@ -30,12 +30,13 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal, Protocol
 
 from netmover.models import CollisionPolicy
 from netmover.mounting.sftp import SftpSession
 from netmover.mover.fsops import rename_noreplace
 from netmover.mover.naming import collision_candidates
+from netmover.mover.sources import network_errors
 from netmover.timeouts import CancelToken
 
 CHUNK = 1024 * 1024
@@ -81,6 +82,13 @@ class CommitResult:
 Verify = Callable[[], None]
 
 
+class Readable(Protocol):
+    """Quelle einer Übertragung: ein lokaler ``Path`` oder eine Datei einer
+    :class:`~netmover.mover.sources.Source` (über einen kleinen Adapter)."""
+
+    def open(self, mode: str = ...) -> Any: ...
+
+
 class Destination(ABC):
     kind: FsKind
 
@@ -107,7 +115,7 @@ class Destination(ABC):
     def _ensure_parent(self, rel: str) -> None: ...
 
     @abstractmethod
-    def _upload(self, src: Path, tmp: str, size: int, token: CancelToken) -> list[str]: ...
+    def _upload(self, src: Readable, tmp: str, size: int, token: CancelToken) -> list[str]: ...
 
     @abstractmethod
     def _apply_meta(self, rel: str, meta: MetaOptions) -> list[str]: ...
@@ -140,7 +148,7 @@ class Destination(ABC):
 
     def commit(
         self,
-        src: Path,
+        src: Readable,
         size: int,
         rel: str,
         policy: CollisionPolicy,
@@ -234,7 +242,7 @@ class LocalDestination(Destination):
     def _ensure_parent(self, rel: str) -> None:
         self._p(rel).parent.mkdir(mode=0o755, parents=True, exist_ok=True)
 
-    def _upload(self, src: Path, tmp: str, size: int, token: CancelToken) -> list[str]:
+    def _upload(self, src: Readable, tmp: str, size: int, token: CancelToken) -> list[str]:
         written = 0
         fd = os.open(self._p(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
@@ -429,10 +437,10 @@ class SftpDestination(Destination):
             except FileNotFoundError:
                 self.client.mkdir(current, mode=0o755)
 
-    def _upload(self, src: Path, tmp: str, size: int, token: CancelToken) -> list[str]:
+    def _upload(self, src: Readable, tmp: str, size: int, token: CancelToken) -> list[str]:
         notes: list[str] = []
         written = 0
-        with self.client.open(self._p(tmp), "wb") as fh, src.open("rb") as fin:
+        with network_errors(), self.client.open(self._p(tmp), "wb") as fh, src.open("rb") as fin:
             fh.set_pipelined(True)
             while chunk := fin.read(CHUNK // 4):
                 token.check()

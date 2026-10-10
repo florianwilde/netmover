@@ -34,7 +34,7 @@ class FileState:
 @dataclass(frozen=True)
 class Candidate:
     relpath: str  # POSIX, relativ zum Quellordner
-    path: Path
+    path: Path | None  # nur bei lokalen Quellen
     state: FileState
 
 

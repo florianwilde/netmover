@@ -48,7 +48,11 @@ class _Server(paramiko.ServerInterface):
 
 
 class _Handle(SFTPHandle):
-    pass
+    def stat(self) -> Any:  # fstat wie bei OpenSSH
+        try:
+            return SFTPAttributes.from_stat(os.fstat(self.readfile.fileno()))
+        except OSError as e:
+            return SFTPServer.convert_errno(e.errno)
 
 
 class _RootedSFTP(SFTPServerInterface):
