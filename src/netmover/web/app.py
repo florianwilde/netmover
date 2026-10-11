@@ -422,13 +422,24 @@ class RuleView:
     target: str
 
 
+def _archive_target(r: Rule) -> str | None:
+    if r.archive_kind.value == "none":
+        return None
+    if r.archive_kind.value == "local" or r.archive_mount is None:
+        place = r.archive_path
+    else:
+        place = f"{r.archive_mount.name}:/{r.archive_path}"
+    return place + (" (nach Datum)" if r.archive_layout.value == "date" else "")
+
+
 def _rule_target(r: Rule) -> str:
     src = f"{r.src_mount.name}:/{r.src_subpath}" if r.src_subpath else f"{r.src_mount.name}:/"
     if r.dst_mount is None:
         dst = r.dst_path
     else:
         dst = f"{r.dst_mount.name}:/{r.dst_path}" if r.dst_path else f"{r.dst_mount.name}:/"
-    return f"{src} → {dst}"
+    archive = _archive_target(r)
+    return f"{src} → {dst}" + (f" + Archiv {archive}" if archive else "")
 
 
 async def _status_context(request: Request) -> dict[str, Any]:

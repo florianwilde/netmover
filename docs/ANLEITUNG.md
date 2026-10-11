@@ -8,7 +8,7 @@ Diese Anleitung erklärt die Bedienung. Installation, Updates und technische Det
 stehen im [README](../README.md).
 
 **Inhalt:** [Begriffe](#begriffe) · [Erste Anmeldung](#erste-anmeldung) ·
-[Zugangsdaten](#zugangsdaten) · [Anbindungen](#anbindungen) · [Regeln](#regeln) ·
+[Zugangsdaten](#zugangsdaten) · [Anbindungen](#anbindungen) · [Regeln](#regeln) · [Archiv](#archiv) ·
 [Probelauf](#probelauf) · [Status](#status) · [Wartungsmodus](#wartungsmodus) · [Protokoll](#protokoll) ·
 [Einstellungen](#einstellungen) · [Anmeldung](#anmeldung) · [Uptime Kuma](#uptime-kuma) · [Beispiele](#beispiele) · [Häufige Fragen](#fragen)
 
@@ -159,6 +159,34 @@ Gespeicherte Zugangsdaten lassen sich nur löschen, wenn sie keine Anbindung meh
 | **Ziel** | Eine Anbindung mit Zielordner (wird angelegt) oder ein **lokaler Pfad** auf dem NetMover-Server (muss existieren). |
 | **Aktion** | **verschieben** (Quelle wird nach erfolgreicher Übertragung gelöscht) oder **kopieren** (Quelle bleibt; jede Dateiversion wird nur einmal kopiert). |
 | **Wenn Datei existiert** | **umbenennen** (`scan.pdf` → `scan-1.pdf`, `scan-2.pdf` …), **überspringen** oder **überschreiben**. |
+
+### Archiv {#archiv}
+
+Optional bekommt jede Datei zusätzlich eine **Kopie ins Archiv** – z. B. Paperless als
+Ziel und ein Archivordner auf dem NAS. **Die Quelle wird erst gelöscht, wenn die Datei
+im Ziel UND im Archiv angekommen ist.**
+
+| Feld | Bedeutung |
+|---|---|
+| **Archiv** | kein Archiv / eine Anbindung (SMB, NFS, SFTP) / ein lokaler Pfad |
+| **Archivordner** | Anbindung: relativer Unterordner (wird angelegt). Lokal: absoluter Pfad, muss existieren. |
+| **Ablage** | **wie in der Quelle** oder **nach Datum** – `2026/10/scan001.pdf` (Monat der Verarbeitung) |
+
+So läuft es pro Datei:
+
+1. **Zuerst ins Archiv** – mit denselben Sicherungen wie beim Ziel.
+2. **Dann ins Ziel.**
+3. **Dann erst** wird die Quelle gelöscht (bei „verschieben“).
+
+Das Archiv kommt zuerst, weil ein Ziel wie Paperless Dateien sofort abholt: Scheitert
+das Archiv, wurde noch nichts geliefert, und die Datei bleibt in der Quelle. Scheitert
+danach das Ziel, merkt sich NetMover, dass die Datei schon archiviert ist – der nächste
+Versuch legt keine zweite Archivkopie an.
+
+Im Archiv wird **nie überschrieben**: Gleiche Namen werden immer umbenannt
+(`scan-1.pdf`), egal was die Regel fürs Ziel vorsieht. Ist das Archiv nicht erreichbar,
+wartet die Regel wie bei Quelle und Ziel. Im Kopiermodus bekommen Ziel und Archiv je
+eine Kopie, die Quelle bleibt.
 
 ### Sicherheit und Grenzen {#regel-sicherheit}
 
@@ -378,7 +406,8 @@ deaktiviert, Zugangsdaten müssen neu eingegeben werden.
 3. Anbindung **Paperless** (SFTP, Pfad `/opt/paperless_data/consume`, Schlüssel
    wählen, Benutzer = der Paperless-Benutzer), testen.
 4. Regel **Scans → Paperless**: Quelle NAS, Filter `*.pdf`, Ziel Paperless,
-   verschieben, umbenennen, 30 s. **Probelauf**, dann aktivieren.
+   verschieben, umbenennen, 30 s. Optional **Archiv**: Anbindung NAS, Ordner
+   `Archiv/Scans`, Ablage nach Datum. **Probelauf**, dann aktivieren.
 
 ### Jede Person in einen eigenen Ordner {#beispiel-unterordner}
 

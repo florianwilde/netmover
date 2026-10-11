@@ -8,6 +8,19 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 
 ## [Unreleased]
 
+## [0.7.0] – 2026-10-12
+
+### Hinzugefügt
+- **Archiv je Regel:** zusätzliche Kopie in ein Archiv (Anbindung SMB/NFS/SFTP oder
+  lokaler Pfad), Ablage „wie in der Quelle“ oder „nach Datum“ (`Jahr/Monat/…`).
+  Reihenfolge: erst Archiv, dann Ziel, **erst dann wird die Quelle gelöscht**.
+  Scheitert das Ziel nach dem Archiv, verhindert eine Buchführung
+  (`archived_files`) eine zweite Archivkopie. Im Archiv wird nie überschrieben.
+  Nicht erreichbares Archiv → Regel wartet. Platzprüfung auch fürs Archiv,
+  Probelauf zeigt das Archivziel. Migration 0004.
+- Export/Import enthalten die Archiv-Einstellungen; eine als Archiv benutzte
+  Anbindung lässt sich nicht löschen.
+
 ## [0.6.0] – 2026-10-11
 
 ### Geändert
@@ -246,7 +259,8 @@ Erste Version.
 - Löschen von Zugangsdaten, die noch von einem Mount benutzt werden, trennt den
   Mount nicht mehr stillschweigend ab, sondern wird von der Datenbank abgelehnt.
 
-[Unreleased]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.6.0...HEAD
+[Unreleased]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.7.0...HEAD
+[0.7.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.6.0...v0.7.0
 [0.6.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.5.0...v0.6.0
 [0.5.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.4.0...v0.5.0
 [0.4.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.3.0...v0.4.0

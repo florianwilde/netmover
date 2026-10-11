@@ -20,9 +20,31 @@ Zeiten in Ortszeit (Europe/Berlin).
 | 2026-10-11 | 00:31 | 00:50 | 0:19  | –       | Pausieren, Wartungsmodus, E-Mail (0.4.0) |
 | 2026-10-11 | 00:54 | 01:16 | 0:22  | –       | SFTP-Quelle, Zugangsdaten, Anmeldung (0.5.0) |
 | 2026-10-11 | 08:43 | 08:55 | 0:12  | –       | Anmeldung je Netz (0.6.0)              |
-| **Summe**  |       |       | **3:29** |      |                                        |
+| 2026-10-12 | 00:14 | 00:34 | 0:20  | –       | Archiv je Regel (0.7.0)                |
+| **Summe**  |       |       | **3:49** |      |                                        |
 
 ---
+
+## 2026-10-12 · 00:14–00:34 · Archiv je Regel (0.7.0)
+
+**Erledigt**
+- Archivfelder an der Regel, Tabelle `archived_files` (Migration 0004).
+- Engine: Archiv zuerst, dann Ziel, dann Quelle löschen; Archiv immer „umbenennen“.
+- Runner: Ziel- und Archivaufbau über eine gemeinsame Fabrik (`_target`).
+- 14 Tests (350 gesamt); Mutationsprobe 4/4 erkannt (Buchführung, Archiv
+  übersprungen, Kollisionsregel, Platzprüfung).
+
+**Entscheidungen**
+- Archiv *vor* Ziel: Paperless holt Dateien sofort ab – andersherum würde ein
+  gescheitertes Archiv beim Neuversuch zur doppelten Lieferung führen.
+- Archiv überschreibt nie (unabhängig von der Kollisionsregel des Ziels).
+- Ablage „nach Datum“ nach Verarbeitungsdatum (nicht Datei-mtime) – eindeutig
+  nachvollziehbar, wann eine Datei durchgelaufen ist.
+
+**Stolperstein**
+- Downgrade von 0004 scheiterte an den CHECK-Regeln der neuen Auswahlfelder
+  (verweisen nach dem Entfernen der Spalten ins Leere) – nur dank der Migrations-
+  tests mit Daten aufgefallen; Downgrade entfernt sie jetzt zuerst.
 
 ## 2026-10-11 · 08:43–08:55 · Anmeldung je Netz (0.6.0)
 

@@ -28,6 +28,7 @@ Legende: ✅ erledigt · 🔨 in Arbeit · 📋 geplant · 💡 Idee (noch nicht
 
 | Version | Thema |
 |---|---|
+| 0.7.0 | Archiv je Regel: Kopie ins Ziel und ins Archiv, Quelle erst danach löschen |
 | 0.6.0 | Anmeldung je Netz: ohne Passwort / mit Passwort / abgewiesen, Schutz vor Aussperren |
 | 0.5.0 | SFTP als Quelle; gespeicherte Zugangsdaten für SMB/SFTP-Passwörter (Seite „Zugangsdaten“); Anmeldung abschaltbar (vertrauenswürdige Netze / ganz) |
 | 0.4.0 | Automatisch pausieren/fortsetzen bei nicht erreichbaren Anbindungen; Wartungsmodus; E-Mail-Benachrichtigung; eine Meldung pro ausgefallener Anbindung |

@@ -18,6 +18,8 @@ from sqlalchemy.orm import Session
 
 from netmover.crypto import SecretBox, generate_ssh_keypair
 from netmover.models import (
+    ArchiveKind,
+    ArchiveLayout,
     CollisionPolicy,
     Credential,
     CredentialKind,
@@ -424,7 +426,11 @@ def delete_mount(s: Session, mounts: MountManager, mount_id: int) -> None:
     if m is None:
         return
     used = s.scalars(
-        select(Rule.name).where((Rule.src_mount_id == mount_id) | (Rule.dst_mount_id == mount_id))
+        select(Rule.name).where(
+            (Rule.src_mount_id == mount_id)
+            | (Rule.dst_mount_id == mount_id)
+            | (Rule.archive_mount_id == mount_id)
+        )
     ).all()
     if used:
         raise AdminError(f"Wird noch von Regeln benutzt: {', '.join(used)}")
@@ -465,6 +471,10 @@ class RuleInput:
     dry_run: bool = False
     quarantine_path: str = ""
     quarantine_after: int = 3
+    archive_kind: ArchiveKind = ArchiveKind.NONE
+    archive_mount_id: int | None = None
+    archive_path: str = ""
+    archive_layout: ArchiveLayout = ArchiveLayout.FLAT
     extra: dict[str, str] = field(default_factory=dict)
 
 
@@ -492,6 +502,10 @@ def rule_input_from_model(r: Rule) -> RuleInput:
         dry_run=r.dry_run,
         quarantine_path=r.quarantine_path or "",
         quarantine_after=r.quarantine_after,
+        archive_kind=r.archive_kind,
+        archive_mount_id=r.archive_mount_id,
+        archive_path=r.archive_path,
+        archive_layout=r.archive_layout,
     )
 
 
@@ -585,6 +599,39 @@ def parse_rule_form(s: Session, form: Mapping[str, str]) -> tuple[RuleInput, Err
             d.quarantine_path = safe_relpath("quarantine_path", d.quarantine_path)
         except ValidationError as exc:
             errors["quarantine_path"] = str(exc)
+
+    # Archiv
+    try:
+        d.archive_kind = ArchiveKind(form.get("archive_kind") or "none")
+        d.archive_layout = ArchiveLayout(form.get("archive_layout") or "flat")
+    except ValueError:
+        errors["archive_kind"] = "Ungültige Auswahl."
+    d.archive_path = (form.get("archive_path") or "").strip()
+    if d.archive_kind is ArchiveKind.MOUNT:
+        d.archive_mount_id = _int(form, "archive_mount_id", errors)
+        if d.archive_mount_id is None or s.get(Mount, d.archive_mount_id) is None:
+            errors["archive_mount_id"] = "Archiv-Anbindung wählen."
+        try:
+            d.archive_path = safe_relpath("archive_path", d.archive_path)
+        except ValidationError as exc:
+            errors["archive_path"] = str(exc)
+        if (
+            "archive_path" not in errors
+            and d.archive_mount_id == d.dst_mount_id
+            and d.dst_kind == "mount"
+            and d.archive_path == d.dst_path
+        ):
+            errors["archive_path"] = "Archiv und Ziel sind derselbe Ordner."
+    elif d.archive_kind is ArchiveKind.LOCAL:
+        d.archive_mount_id = None
+        try:
+            d.archive_path = safe_abspath("archive_path", d.archive_path)
+        except ValidationError as exc:
+            errors["archive_path"] = str(exc)
+        if d.dst_kind == "local" and d.archive_path == d.dst_path:
+            errors["archive_path"] = "Archiv und Ziel sind derselbe Ordner."
+    else:
+        d.archive_mount_id, d.archive_path = None, ""
     return d, errors
 
 
@@ -617,6 +664,10 @@ def save_rule(s: Session, d: RuleInput, rule_id: int | None = None) -> tuple[Rul
         "on_collision",
         "dry_run",
         "quarantine_after",
+        "archive_kind",
+        "archive_mount_id",
+        "archive_path",
+        "archive_layout",
     ):
         setattr(r, f, getattr(d, f))
     r.set_owner = d.set_owner or None

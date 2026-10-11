@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session
 
 from netmover import __version__
 from netmover.models import (
+    ArchiveKind,
+    ArchiveLayout,
     CollisionPolicy,
     Mount,
     MountState,
@@ -72,6 +74,9 @@ RULE_FIELDS = (
     "dry_run",
     "quarantine_path",
     "quarantine_after",
+    "archive_kind",
+    "archive_path",
+    "archive_layout",
 )
 SETTING_FIELDS = (
     "retention_days",
@@ -99,6 +104,7 @@ def export_config(s: Session, settings: AppSettings) -> dict[str, Any]:
                 **{f: _plain(getattr(r, f)) for f in RULE_FIELDS},
                 "src_mount": names[r.src_mount_id],
                 "dst_mount": names.get(r.dst_mount_id) if r.dst_mount_id else None,
+                "archive_mount": names.get(r.archive_mount_id) if r.archive_mount_id else None,
             }
             for r in s.scalars(select(Rule).order_by(Rule.name))
         ],
@@ -165,13 +171,16 @@ def import_config(s: Session, mounts: MountManager, data: dict[str, Any]) -> Imp
         try:
             src = ids[raw["src_mount"]]
             dst = ids[raw["dst_mount"]] if raw.get("dst_mount") else None
-            r = Rule(src_mount_id=src, dst_mount_id=dst)
+            arch = ids[raw["archive_mount"]] if raw.get("archive_mount") else None
+            r = Rule(src_mount_id=src, dst_mount_id=dst, archive_mount_id=arch)
             for f in RULE_FIELDS:
                 if f in raw:
                     setattr(r, f, raw[f])
             r.pattern_type = PatternType(r.pattern_type)
             r.action = RuleAction(r.action)
             r.on_collision = CollisionPolicy(r.on_collision)
+            r.archive_kind = ArchiveKind(r.archive_kind or "none")
+            r.archive_layout = ArchiveLayout(r.archive_layout or "flat")
             r.src_subpath = safe_relpath("src_subpath", r.src_subpath or "")
             if int(r.interval_seconds) < 10:
                 raise ValueError("Intervall < 10 s")

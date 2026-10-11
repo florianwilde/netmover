@@ -30,6 +30,13 @@
     {{ select('on_collision', 'Wenn Datei existiert', [('rename', 'umbenennen (scan-1.pdf)'), ('skip', 'überspringen'), ('overwrite', 'überschreiben')], d.on_collision.value, errors=errors) }}
   </div></fieldset>
 
+  <fieldset><legend>Archiv <a class="legend-help" href="/help#archiv" title="Hilfe">?</a></legend><div class="fields">
+    {{ select('archive_kind', 'Archiv', [('none', 'kein Archiv'), ('mount', 'Anbindung'), ('local', 'Lokaler Pfad')], d.archive_kind.value, errors=errors, hint='Zusätzliche Kopie. Die Quelle wird erst gelöscht, wenn Ziel UND Archiv sie haben.') }}
+    <div data-show-for="archive_kind:mount">{{ select('archive_mount_id', 'Archiv-Anbindung', dst_options, d.archive_mount_id or '', errors=errors) }}</div>
+    <div data-show-for="archive_kind:mount local">{{ field('archive_path', 'Archivordner', d.archive_path, errors=errors, hint='Anbindung: relativer Unterordner (wird angelegt). Lokal: absoluter Pfad, muss existieren.') }}</div>
+    <div data-show-for="archive_kind:mount local">{{ select('archive_layout', 'Ablage', [('flat', 'wie in der Quelle'), ('date', 'nach Datum (Jahr/Monat)')], d.archive_layout.value, errors=errors, hint='Im Archiv wird nie überschrieben – gleiche Namen werden umbenannt.') }}</div>
+  </div></fieldset>
+
   <fieldset><legend>Sicherheit und Grenzen <a class="legend-help" href="/help#regel-sicherheit" title="Hilfe">?</a></legend><div class="fields">
     {{ field('stability_seconds', 'Stabilitätsfenster (s)', d.stability_seconds, type='number', errors=errors, attrs='min="0"', hint='Größe und Zeit müssen so lange gleich bleiben') }}
     {{ field('min_age_seconds', 'Mindestalter (s)', d.min_age_seconds, type='number', errors=errors, attrs='min="0"') }}
