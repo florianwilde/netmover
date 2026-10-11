@@ -294,7 +294,11 @@ def save_mount(
     mounts: MountManager,
     data: MountInput,
     mount_id: int | None = None,
+    copy_from: Mount | None = None,
 ) -> tuple[Mount | None, Errors]:
+    """``copy_from``: Vorlage beim Kopieren – eigene Zugangsdaten (Passwort bzw.
+    Schlüsselpaar) werden übernommen, solange kein neues Passwort eingegeben ist;
+    die Kopie bekommt ein eigenes Exemplar."""
     errors: Errors = {}
     m = s.get(Mount, mount_id) if mount_id is not None else None
     if mount_id is not None and m is None:
@@ -349,6 +353,14 @@ def save_mount(
         setattr(m, f, getattr(data, f))
     if not data.type.is_kernel_mount:
         m.auto_mount = False
+    if (
+        mount_id is None
+        and copy_from is not None
+        and data.type is MountType.SFTP
+        and copy_from.type is MountType.SFTP
+        and (copy_from.server, copy_from.port) == (data.server, data.port)
+    ):
+        m.host_key = copy_from.host_key  # gleicher Server – Hostschlüssel bleibt gültig
 
     # Zugangsdaten: entweder ein gespeicherter Schlüssel aus der Schlüsselverwaltung
     # (geteilt, wird hier nie verändert) oder eigene Zugangsdaten nur dieser Anbindung.
@@ -386,21 +398,32 @@ def save_mount(
     else:
         m.username = None
         cred = own
+        template = (
+            copy_from.credential
+            if copy_from is not None
+            and copy_from.credential is not None
+            and not copy_from.credential.managed
+            and copy_from.credential.kind is data.auth
+            else None
+        )
         if cred is None or cred.kind is not data.auth:
-            if data.auth is CredentialKind.SSH_KEY:
-                private, public = generate_ssh_keypair(f"netmover@{m.slug}")
-                secret, pub = private, public
+            if template is not None and (data.auth is CredentialKind.SSH_KEY or not data.password):
+                # Kopie: dasselbe Passwort bzw. Schlüsselpaar (steht schon in authorized_keys)
+                secret_enc, pub = template.secret_enc, template.public_key
+            elif data.auth is CredentialKind.SSH_KEY:
+                private, pub = generate_ssh_keypair(f"netmover@{m.slug}")
+                secret_enc = secrets.encrypt(private)
             else:
                 if not data.password:
                     errors["password"] = "Passwort fehlt."  # noqa: S105
                     s.rollback()
                     return None, errors
-                secret, pub = data.password, None
+                secret_enc, pub = secrets.encrypt(data.password), None
             if cred is None:
                 cred = Credential(name=f"mount:{m.slug}", managed=False)
                 s.add(cred)
             cred.kind = data.auth
-            cred.secret_enc = secrets.encrypt(secret)
+            cred.secret_enc = secret_enc
             cred.public_key = pub
         elif data.password and data.auth is CredentialKind.PASSWORD:
             cred.secret_enc = secrets.encrypt(data.password)
@@ -419,6 +442,16 @@ def save_mount(
         errors["_"] = "Speichern fehlgeschlagen (Name oder Mountpoint doppelt)."
         return None, errors
     return m, errors
+
+
+def copy_name(s: Session, name: str) -> str:
+    """„NAS (Kopie)“, „NAS (Kopie 2)“, … – frei in der Datenbank."""
+    base = f"{name} (Kopie)"[:100]
+    candidate, n = base, 1
+    while s.scalar(select(Mount.id).where(Mount.name == candidate)) is not None:
+        n += 1
+        candidate = f"{name} (Kopie {n})"[:100]
+    return candidate
 
 
 def delete_mount(s: Session, mounts: MountManager, mount_id: int) -> None:

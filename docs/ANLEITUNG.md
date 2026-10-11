@@ -72,6 +72,22 @@ Stabilitätsfenster dort mindestens 2 Sekunden betragen.
 | **Beim Start automatisch einhängen** | Nach einem Neustart des Servers wieder einhängen. Fällt das NAS aus, versucht NetMover es außerdem jede Minute erneut. |
 | **Aktiv** | Deaktivierte Anbindungen werden von Regeln nicht benutzt. |
 
+### Kopieren {#anbindung-kopieren}
+
+Für eine ähnliche Anbindung – etwa eine zweite Freigabe auf demselben NAS – bei der
+Vorlage auf **Kopieren** klicken. Das Formular ist mit allen Werten vorausgefüllt
+(Name „… (Kopie)“); meist muss nur die Freigabe geändert werden.
+
+- **Zugangsdaten werden übernommen**, solange das Passwortfeld leer bleibt. Die Kopie
+  bekommt ein eigenes Exemplar – das Löschen der Vorlage betrifft sie nicht.
+  Gespeicherte Zugangsdaten sind einfach vorausgewählt.
+- Ein **eigener SSH-Schlüssel** der Vorlage wird weiter benutzt; ein neuer Eintrag in
+  `authorized_keys` ist nicht nötig.
+- **Testen** funktioniert im Kopie-Formular bereits mit den übernommenen Zugangsdaten.
+
+Tipp: Nutzen mehrere Anbindungen dieselben Zugangsdaten, lohnt sich ein Eintrag unter
+[Zugangsdaten](#zugangsdaten) – dann gilt ein neues Passwort sofort überall.
+
 ### Testen {#anbindung-testen}
 
 **Testen** prüft drei Dinge einzeln und sagt im Klartext, was nicht klappt:

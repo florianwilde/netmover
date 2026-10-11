@@ -21,9 +21,24 @@ Zeiten in Ortszeit (Europe/Berlin).
 | 2026-10-11 | 00:54 | 01:16 | 0:22  | –       | SFTP-Quelle, Zugangsdaten, Anmeldung (0.5.0) |
 | 2026-10-11 | 08:43 | 08:55 | 0:12  | –       | Anmeldung je Netz (0.6.0)              |
 | 2026-10-12 | 00:14 | 00:34 | 0:20  | –       | Archiv je Regel (0.7.0)                |
-| **Summe**  |       |       | **3:49** |      |                                        |
+| 2026-10-12 | 00:46 | 00:55 | 0:09  | –       | Anbindungen kopieren (0.8.0)           |
+| **Summe**  |       |       | **3:58** |      |                                        |
 
 ---
+
+## 2026-10-12 · 00:46–00:55 · Anbindungen kopieren (0.8.0)
+
+**Erledigt** – Knopf „Kopieren“, Route `/mounts/{id}/copy` (GET Formular, POST
+speichern), `save_mount(copy_from=…)`, Formular-Test mit Vorlage. 7 Tests (357 gesamt);
+Gegenprobe ohne Übernahme der Zugangsdaten: 3 Tests schlagen an.
+
+**Entscheidungen**
+- Eigene Zugangsdaten werden als eigenes Exemplar kopiert (nicht geteilt) – eigene
+  Zugangsdaten verschwinden mit ihrer Anbindung, eine geteilte Nutzung wäre
+  dafür der Fall „Zugangsdaten“.
+- Eigenes Schlüsselpaar bleibt gleich (schon in `authorized_keys`).
+- Hostschlüssel nur bei gleichem Server/Port übernehmen, sonst würde der Test an
+  einem anderen Server mit „Hostschlüssel geändert“ scheitern.
 
 ## 2026-10-12 · 00:14–00:34 · Archiv je Regel (0.7.0)
 

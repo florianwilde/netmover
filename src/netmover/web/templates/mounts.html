@@ -22,6 +22,7 @@
         {% endif %}
       {% endif %}
       <a class="btn small" href="/mounts/{{ m.id }}/edit">Bearbeiten</a>
+      <a class="btn small" href="/mounts/{{ m.id }}/copy" title="Neue Anbindung mit denselben Werten und Zugangsdaten">Kopieren</a>
       <form class="inline" method="post" action="/mounts/{{ m.id }}/delete" data-confirm="„{{ m.name }}“ wirklich löschen?">{{ csrf_field(csrf) }}<button class="small danger">Löschen</button></form>
     </div>
   </div>

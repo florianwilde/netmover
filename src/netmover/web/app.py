@@ -38,6 +38,7 @@ from netmover.admin import (
     AdminError,
     MountInput,
     RuleInput,
+    copy_name,
     credential_for_test,
     delete_mount,
     mount_input_from_model,
@@ -591,10 +592,12 @@ def _mount_form(
     errors: dict[str, str],
     mount: Mount | None = None,
     status_code: int = 200,
+    copy_from: Mount | None = None,
 ) -> Response:
+    owner = mount or copy_from
     pub = (
-        mount.credential.public_key
-        if mount is not None and mount.credential and not mount.credential.managed
+        owner.credential.public_key
+        if owner is not None and owner.credential and not owner.credential.managed
         else None
     )
     return render(
@@ -607,8 +610,9 @@ def _mount_form(
         mount=mount,
         public_key=pub,
         has_secret=bool(
-            mount is not None and mount.credential is not None and not mount.credential.managed
+            owner is not None and owner.credential is not None and not owner.credential.managed
         ),
+        copy_from=copy_from,
         key_options=_key_options(request),
         password_options=_password_options(request),
     )
@@ -628,16 +632,33 @@ async def mount_edit(request: Request, mount_id: int) -> Response:
         return _mount_form(request, mount_input_from_model(m), {}, m)
 
 
+@protected.get("/mounts/{source_id}/copy", response_class=HTMLResponse)
+async def mount_copy(request: Request, source_id: int) -> Response:
+    """Formular für eine neue Anbindung, vorausgefüllt aus einer bestehenden."""
+    with nm(request).session_factory() as s:
+        src = s.get(Mount, source_id)
+        if src is None:
+            return redirect("/mounts")
+        data = mount_input_from_model(src)
+        data.name = copy_name(s, src.name)
+        return _mount_form(request, data, {}, copy_from=src)
+
+
 @protected.post("/mounts/new", response_class=HTMLResponse)
 @protected.post("/mounts/{mount_id}/edit", response_class=HTMLResponse)
-async def mount_save(request: Request, mount_id: int | None = None) -> Response:
+@protected.post("/mounts/{source_id}/copy", response_class=HTMLResponse)
+async def mount_save(
+    request: Request, mount_id: int | None = None, source_id: int | None = None
+) -> Response:
     state = nm(request)
     data, errors = parse_mount_form(_form_dict(await request.form()))
     with session_scope(state.session_factory) as s:
-        existing = s.get(Mount, mount_id) if mount_id is not None else None
+        copy_from = s.get(Mount, source_id) if source_id is not None else None
         if not errors:
             try:
-                m, errors = save_mount(s, state.secrets, state.mounts, data, mount_id)
+                m, errors = save_mount(
+                    s, state.secrets, state.mounts, data, mount_id, copy_from=copy_from
+                )
             except AdminError as exc:
                 errors = {"_": str(exc)}
                 m = None
@@ -646,7 +667,10 @@ async def mount_save(request: Request, mount_id: int | None = None) -> Response:
         if errors or m is None:
             s.rollback()
             existing = s.get(Mount, mount_id) if mount_id is not None else None
-            return _mount_form(request, data, errors, existing, status_code=400)
+            copy_from = s.get(Mount, source_id) if source_id is not None else None
+            return _mount_form(
+                request, data, errors, existing, status_code=400, copy_from=copy_from
+            )
         saved_id, name = m.id, m.name
         is_sftp_key = m.type is MountType.SFTP and data.auth is CredentialKind.SSH_KEY
     flash(request, f"Anbindung „{name}“ gespeichert.")
@@ -668,12 +692,17 @@ async def mount_test_form(request: Request) -> Response:
     data, errors = parse_mount_form(form)
     if errors:
         return render(request, "partials/check_result.html", errors=errors, report=None)
-    existing_id = int(form["mount_id"]) if form.get("mount_id", "").isdigit() else None
+    ref = form.get("mount_id") or form.get("copy_from") or ""
+    existing_id = int(ref) if ref.isdigit() else None
     with state.session_factory() as s:
         existing = s.get(Mount, existing_id) if existing_id else None
         cred = credential_for_test(data, existing, state.secrets, s)
     cfg = data.config()
-    if data.type is MountType.SFTP and existing is not None:
+    if (
+        data.type is MountType.SFTP
+        and existing is not None
+        and (existing.server, existing.port) == (data.server, data.port)
+    ):
         cfg = dataclasses.replace(cfg, host_key=existing.host_key)
     report = await run_in_threadpool(state.mounts.check, cfg, cred, None)
     return render(request, "partials/check_result.html", report=report, errors={})

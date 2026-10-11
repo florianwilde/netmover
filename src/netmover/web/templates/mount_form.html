@@ -1,12 +1,14 @@
 {% extends "base.html" %}
 {% from "macros.html" import field, select, check %}
-{% block title %}{{ 'Anbindung bearbeiten' if mount else 'Neue Anbindung' }}{% endblock %}
+{% block title %}{{ 'Anbindung bearbeiten' if mount else ('Anbindung kopieren' if copy_from else 'Neue Anbindung') }}{% endblock %}
 {% block content %}
-<h1>{{ 'Anbindung „' ~ mount.name ~ '“ bearbeiten' if mount else 'Neue Anbindung' }}</h1>
+<h1>{% if mount %}Anbindung „{{ mount.name }}“ bearbeiten{% elif copy_from %}Kopie von „{{ copy_from.name }}“{% else %}Neue Anbindung{% endif %}</h1>
+{% if copy_from %}<p class="msg info small">Alle Werte stammen aus „{{ copy_from.name }}“. Zugangsdaten werden übernommen, solange du das Passwort leer lässt – die Kopie bekommt ihr eigenes Exemplar.{% if copy_from.credential and copy_from.credential.public_key and not copy_from.credential.managed %} Der SSH-Schlüssel bleibt derselbe, ein neuer Eintrag in <code>authorized_keys</code> ist nicht nötig.{% endif %}</p>{% endif %}
 {% if errors.get('_') %}<p class="msg error">{{ errors['_'] }}</p>{% endif %}
 <form class="form" method="post" data-dynamic>
   <input type="hidden" name="csrf_token" value="{{ csrf }}">
   {% if mount %}<input type="hidden" name="mount_id" value="{{ mount.id }}">{% endif %}
+  {% if copy_from %}<input type="hidden" name="copy_from" value="{{ copy_from.id }}">{% endif %}
   <fieldset><legend>Verbindung <a class="legend-help" href="/help#anbindung-felder" title="Hilfe">?</a></legend><div class="fields">
     {{ field('name', 'Name', d.name, errors=errors, attrs='required maxlength="100"', hint=('Verzeichnis: ' ~ mount.mountpoint if mount and mount.mountpoint else '')) }}
     {{ select('type', 'Typ', [('cifs', 'SMB/CIFS'), ('nfs4', 'NFS 4'), ('nfs3', 'NFS 3'), ('sftp', 'SFTP')], d.type.value, errors=errors) }}
