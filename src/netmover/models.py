@@ -10,6 +10,7 @@ Abweichungen bzw. Ergänzungen gegenüber dem Mindestumfang aus der Spezifikatio
 * ``credentials.managed`` + ``mounts.username`` (Migration 0002) –
   Schlüsselverwaltung: gespeicherte SSH-Schlüssel, die mehrere Anbindungen mit
   jeweils eigenem Benutzernamen nutzen.
+* ``rules.archive_*`` + Tabelle ``archived_files`` (Migration 0004) – Archivkopie.
 * ``rules.waiting_since`` / ``rules.waiting_reason`` (Migration 0003) – Regel wartet
   auf eine nicht erreichbare Anbindung (automatisch pausiert).
 * ``mounts.state_since`` – für „hängt seit …“ / „gestört seit …“ auf der Statusseite.
@@ -138,6 +139,17 @@ class CollisionPolicy(enum.StrEnum):
     OVERWRITE = "overwrite"
 
 
+class ArchiveKind(enum.StrEnum):
+    NONE = "none"
+    MOUNT = "mount"
+    LOCAL = "local"
+
+
+class ArchiveLayout(enum.StrEnum):
+    FLAT = "flat"  # wie in der Quelle
+    DATE = "date"  # Jahr/Monat/…, nach Tag der Verarbeitung
+
+
 class RunStatus(enum.StrEnum):
     RUNNING = "running"
     OK = "ok"  # keine Dateifehler
@@ -259,6 +271,18 @@ class Rule(Base):
     quarantine_path: Mapped[str | None] = mapped_column(String(1024))
     quarantine_after: Mapped[int] = mapped_column(Integer, default=3)
 
+    # Archiv (Migration 0004): zusätzliche Kopie; Quelle erst löschen, wenn Ziel UND Archiv da
+    archive_kind: Mapped[ArchiveKind] = mapped_column(
+        _enum(ArchiveKind, "archive_kind"), default=ArchiveKind.NONE, server_default="none"
+    )
+    archive_mount_id: Mapped[int | None] = mapped_column(
+        ForeignKey("mounts.id", ondelete="RESTRICT")
+    )
+    archive_path: Mapped[str] = mapped_column(String(1024), default="", server_default="")
+    archive_layout: Mapped[ArchiveLayout] = mapped_column(
+        _enum(ArchiveLayout, "archive_layout"), default=ArchiveLayout.FLAT, server_default="flat"
+    )
+
     last_run_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     last_success_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     consecutive_failures: Mapped[int] = mapped_column(Integer, default=0)
@@ -269,6 +293,7 @@ class Rule(Base):
 
     src_mount: Mapped[Mount] = relationship(foreign_keys=[src_mount_id])
     dst_mount: Mapped[Mount | None] = relationship(foreign_keys=[dst_mount_id])
+    archive_mount: Mapped[Mount | None] = relationship(foreign_keys=[archive_mount_id])
     runs: Mapped[list[Run]] = relationship(
         back_populates="rule", cascade="all, delete-orphan", passive_deletes=True
     )
@@ -328,6 +353,22 @@ class CopiedFile(Base):
     mtime_ns: Mapped[int] = mapped_column(BigInteger)
     dst_path: Mapped[str] = mapped_column(String(2048))
     copied_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class ArchivedFile(Base):
+    """Welche Dateiversion schon im Archiv liegt – damit ein Neuversuch nach einem
+    gescheiterten Ziel keine zweite Archivkopie anlegt."""
+
+    __tablename__ = "archived_files"
+    __table_args__ = (UniqueConstraint("rule_id", "src_relpath", "size", "mtime_ns"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    rule_id: Mapped[int] = mapped_column(ForeignKey("rules.id", ondelete="CASCADE"))
+    src_relpath: Mapped[str] = mapped_column(String(2048))
+    size: Mapped[int] = mapped_column(BigInteger)
+    mtime_ns: Mapped[int] = mapped_column(BigInteger)
+    archive_path: Mapped[str] = mapped_column(String(2048))
+    archived_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
 class FileFailure(Base):

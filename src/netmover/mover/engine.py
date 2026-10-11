@@ -19,6 +19,7 @@ import posixpath
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +73,7 @@ class RuleSnapshot:
     set_mode: int | None = None
     quarantine_after: int = 3
     dst_root_squash: bool | None = None  # nur NFS-Ziele: Ergebnis des Schreibtests
+    archive_layout: str = "flat"  # "flat" | "date" (Jahr/Monat/…)
 
 
 @dataclass
@@ -159,6 +161,7 @@ class Engine:
         dry_run: bool = False,
         quarantine_rel: str | None = None,
         quarantine_root: Path | None = None,
+        archive: Destination | None = None,
     ) -> RunResult:
         """``source``: eine :class:`Source` oder (Kurzform) ein lokales Verzeichnis.
         Quarantäne relativ zur Wurzel der Anbindung (``quarantine_rel``) oder – bei
@@ -168,7 +171,7 @@ class Engine:
         if quarantine_root is not None and isinstance(src, LocalSource):
             quarantine_rel = str(quarantine_root.relative_to(src.root))
         try:
-            self._execute(rule, src, dest, token, result, dry_run, quarantine_rel)
+            self._execute(rule, src, dest, token, result, dry_run, quarantine_rel, archive)
         except Cancelled:
             result.status = RunStatus.ERROR
             result.message = "Lauf abgebrochen"
@@ -195,10 +198,13 @@ class Engine:
         result: RunResult,
         dry_run: bool,
         quarantine_rel: str | None,
+        archive: Destination | None = None,
     ) -> None:
         src.check_root()
         if not dry_run:
             dest.prepare()
+            if archive is not None:
+                archive.prepare()
         token.check()
 
         exclude = frozenset({quarantine_rel}) if quarantine_rel else frozenset()
@@ -212,8 +218,12 @@ class Engine:
         # Kopier-Buchführung (Fallstrick 11). Gilt auch für „verschieben“, falls
         # dort einmal die Quelle nicht gelöscht werden konnte.
         done = self.ledger.copied_keys(rule.id)
+        archived = self.ledger.archived_keys(rule.id) if archive is not None else set()
         if not dry_run:
-            self.ledger.prune_copied(rule.id, {c.relpath for c in candidates})
+            present = {c.relpath for c in candidates}
+            self.ledger.prune_copied(rule.id, present)
+            if archive is not None:
+                self.ledger.prune_archived(rule.id, present)
         fresh = [c for c in candidates if (c.relpath, c.state.size, c.state.mtime_ns) not in done]
         unchanged = len(candidates) - len(fresh)
 
@@ -271,7 +281,11 @@ class Engine:
         failures = self.ledger.failures(rule.id)
         for c in stable:
             token.check()
-            result.add(self._process(rule, c, src, dest, token, dry_run, quarantine_rel, failures))
+            result.add(
+                self._process(
+                    rule, c, src, dest, token, dry_run, quarantine_rel, failures, archive, archived
+                )
+            )
 
         if unchanged:
             result.message = f"{unchanged} bereits übertragen"
@@ -309,8 +323,14 @@ class Engine:
         dry_run: bool,
         quarantine_rel: str | None,
         failures: dict[str, FailureInfo],
+        archive: Destination | None = None,
+        archived: set[tuple[str, int, int]] | None = None,
     ) -> ItemResult:
         size = c.state.size
+        arch_rel = self._archive_rel(c.relpath, rule.archive_layout)
+        need_archive = archive is not None and (
+            (c.relpath, size, c.state.mtime_ns) not in (archived or set())
+        )
         failure = failures.get(c.relpath)
 
         # Quarantäne für wiederholt scheiternde Dateien
@@ -349,9 +369,14 @@ class Engine:
                 else None
             )
             verb = "kopieren" if rule.action is RuleAction.COPY else "verschieben"
-            return ItemResult(
-                c.relpath, ItemStatus.PLANNED, dest.describe(planned), size, msg or f"würde {verb}"
-            )
+            msg = msg or f"würde {verb}"
+            if archive is not None:
+                if need_archive:
+                    arch_planned = archive.plan(arch_rel, CollisionPolicy.RENAME)
+                    msg += f"; Archiv: {archive.describe(arch_planned or arch_rel)}"
+                else:
+                    msg += "; bereits archiviert"
+            return ItemResult(c.relpath, ItemStatus.PLANNED, dest.describe(planned), size, msg)
 
         try:
             free = dest.free_bytes()
@@ -367,9 +392,50 @@ class Engine:
                 f"benötigt {_mb(int(size * SPACE_RESERVE))})",
             )
 
+        if need_archive and archive is not None:
+            try:
+                afree = archive.free_bytes()
+            except OSError:
+                afree = None
+            if afree is not None and afree < size * SPACE_RESERVE:
+                return ItemResult(
+                    c.relpath,
+                    ItemStatus.FAILED,
+                    archive.describe(arch_rel),
+                    size,
+                    f"zu wenig Platz im Archiv (frei {_mb(afree)}, "
+                    f"benötigt {_mb(int(size * SPACE_RESERVE))})",
+                )
+
         def verify() -> None:
             if src.state(c.relpath) != c.state:
                 raise SourceChanged("Quelle hat sich während der Übertragung geändert")
+
+        # Archiv ZUERST: scheitert es, ist noch nichts ans Ziel (z. B. Paperless)
+        # geliefert. Scheitert danach das Ziel, verhindert die Buchführung eine
+        # zweite Archivkopie beim nächsten Versuch.
+        archive_note: str | None = None
+        if need_archive and archive is not None:
+            try:
+                meta, _ = self._meta(rule, src, c.relpath, dest)
+                ares = archive.commit(
+                    _SourceFile(src, c.relpath),
+                    size,
+                    arch_rel,
+                    CollisionPolicy.RENAME,
+                    MetaOptions(meta.atime_ns, meta.mtime_ns, meta.mode, None),
+                    verify,
+                    token,
+                )
+            except CollisionSkip:  # kann bei RENAME nicht auftreten
+                return ItemResult(c.relpath, ItemStatus.SKIPPED, None, size, "Archiv belegt")
+            except SourceChanged as exc:
+                return ItemResult(c.relpath, ItemStatus.SKIPPED, None, size, str(exc))
+            except (TransferError, OSError) as exc:
+                return self._fail(rule, c, exc, dry_run, prefix="Archiv: ")
+            archive_path = archive.describe(ares.final_rel)
+            self.ledger.record_archive(rule.id, c.relpath, size, c.state.mtime_ns, archive_path)
+            archive_note = f"archiviert: {archive_path}"
 
         try:
             meta, notes = self._meta(rule, src, c.relpath, dest)
@@ -401,6 +467,8 @@ class Engine:
             return self._fail(rule, c, exc, dry_run)
 
         notes += res.notes
+        if archive_note:
+            notes.insert(0, archive_note)
         target = dest.describe(res.final_rel)
         if c.relpath in failures:
             self.ledger.clear_failure(rule.id, c.relpath)
@@ -425,10 +493,12 @@ class Engine:
                 )
         return ItemResult(c.relpath, ItemStatus.MOVED, target, size, "; ".join(notes) or None)
 
-    def _fail(self, rule: RuleSnapshot, c: Candidate, exc: Exception, dry_run: bool) -> ItemResult:
+    def _fail(
+        self, rule: RuleSnapshot, c: Candidate, exc: Exception, dry_run: bool, prefix: str = ""
+    ) -> ItemResult:
         if isinstance(exc, OSError) and exc.errno in MOUNT_ERRNOS:
-            raise RunAborted(f"Anbindung gestört: {_describe_os_error(exc)}") from exc
-        msg = _describe_os_error(exc) if isinstance(exc, OSError) else str(exc)
+            raise RunAborted(f"{prefix}Anbindung gestört: {_describe_os_error(exc)}") from exc
+        msg = prefix + (_describe_os_error(exc) if isinstance(exc, OSError) else str(exc))
         if not dry_run:
             attempts = self.ledger.record_failure(
                 rule.id, c.relpath, c.state.size, c.state.mtime_ns, msg
@@ -436,6 +506,12 @@ class Engine:
             msg = f"{msg} (Versuch {attempts})"
         event(log, "file.failed", level=30, rule=rule.name, file=c.relpath, error=msg)
         return ItemResult(c.relpath, ItemStatus.FAILED, None, c.state.size, msg)
+
+    def _archive_rel(self, relpath: str, layout: str) -> str:
+        if layout == "date":
+            t = datetime.fromtimestamp(self._clock())
+            return f"{t:%Y}/{t:%m}/{relpath}"
+        return relpath
 
     def _quarantine(
         self, rule: RuleSnapshot, c: Candidate, src: Source, q_rel: str, attempts: int

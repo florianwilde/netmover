@@ -56,6 +56,11 @@ class RulePlan:
     quarantine_path: str | None
     op_timeout: int
     dry_run: bool
+    archive_kind: str = "none"
+    archive_mount_id: int | None = None
+    archive_type: MountType | None = None
+    archive_name: str | None = None
+    archive_path: str = ""
 
 
 def parse_owner(value: str | None) -> tuple[int, int] | None:
@@ -92,6 +97,7 @@ def load_plan(session: Session, rule_id: int) -> RulePlan:
         set_mode=parse_mode(r.set_mode),
         quarantine_after=r.quarantine_after,
         dst_root_squash=dst.root_squash if dst is not None else None,
+        archive_layout=r.archive_layout.value,
     )
     return RulePlan(
         snapshot=snap,
@@ -109,6 +115,11 @@ def load_plan(session: Session, rule_id: int) -> RulePlan:
         else None,
         op_timeout=r.op_timeout_seconds,
         dry_run=r.dry_run,
+        archive_kind=r.archive_kind.value,
+        archive_mount_id=r.archive_mount_id if r.archive_kind.value == "mount" else None,
+        archive_type=r.archive_mount.type if r.archive_mount is not None else None,
+        archive_name=r.archive_mount.name if r.archive_mount is not None else None,
+        archive_path=r.archive_path,
     )
 
 
@@ -176,24 +187,52 @@ class RuleRunner:
                 if plan.dst_mount_id is not None
                 else None
             )
+            arch_mp = (
+                self.mounts.check_alive(plan.archive_mount_id)
+                if plan.archive_mount_id is not None
+                else None
+            )
         except MountUnavailable as exc:
             return RunResult(RunStatus.ERROR, dry, message=str(exc), unavailable=True)
 
         try:
             make_source = self._source_factory(plan, src_mp)
             src_root = src_mp / plan.src_subpath if src_mp and plan.src_subpath else src_mp
-            make_dest = self._dest_factory(plan, dst_mp, src_root)
+            make_dest = self._target(
+                "dst_path",
+                plan.dst_mount_id,
+                plan.dst_type,
+                plan.dst_name,
+                plan.dst_path,
+                dst_mp,
+                src_root,
+            )
+            make_archive = (
+                self._target(
+                    "archive_path",
+                    plan.archive_mount_id,
+                    plan.archive_type,
+                    plan.archive_name,
+                    plan.archive_path,
+                    arch_mp,
+                    src_root,
+                )
+                if plan.archive_kind != "none"
+                else None
+            )
         except (ValidationError, TransferError, SftpError) as exc:
             return RunResult(RunStatus.ERROR, dry, message=str(exc))
 
         def work(token: CancelToken) -> RunResult:
-            source = make_source()
+            opened: list[Source | Destination] = []
             try:
+                source = make_source()
+                opened.append(source)
                 dest = make_dest()
-            except BaseException:
-                source.close()
-                raise
-            try:
+                opened.append(dest)
+                archive = make_archive() if make_archive is not None else None
+                if archive is not None:
+                    opened.append(archive)
                 return self.engine.execute(
                     plan.snapshot,
                     source,
@@ -201,10 +240,11 @@ class RuleRunner:
                     token,
                     dry_run=dry,
                     quarantine_rel=plan.quarantine_path,
+                    archive=archive,
                 )
             finally:
-                dest.close()
-                source.close()
+                for item in reversed(opened):
+                    item.close()
 
         def finish() -> None:
             self._started.pop(rule_id, None)
@@ -251,41 +291,50 @@ class RuleRunner:
 
         return make_local
 
-    def _dest_factory(
-        self, plan: RulePlan, dst_mp: Path | None, src_root: Path | None
+    def _target(
+        self,
+        field: str,
+        mount_id: int | None,
+        mount_type: MountType | None,
+        mount_name: str | None,
+        path: str,
+        mp: Path | None,
+        src_root: Path | None,
     ) -> Callable[[], Destination]:
-        if plan.dst_mount_id is None:
-            root = Path(safe_abspath("dst_path", plan.dst_path))
+        """Ziel oder Archiv: lokaler Pfad (``mount_id`` None), SFTP oder Kernel-Mount."""
+        what = "Archiv" if field == "archive_path" else "Ziel"
+        if mount_id is None:
+            root = Path(safe_abspath(field, path))
             if self._under_mount_base(root):
                 base = self.mounts.mount_base
                 raise ValidationError(
-                    "dst_path",
-                    f"Lokales Ziel liegt unter {base} – bitte die Anbindung als Ziel wählen, "
+                    field,
+                    f"Lokales {what} liegt unter {base} – bitte die Anbindung als {what} wählen, "
                     "damit geprüft wird, ob sie eingehängt ist.",
                 )
             kind = "local"
             local_root = root
             create = False
-        elif plan.dst_type is MountType.SFTP:
-            scfg = self.mounts.sftp_config_for(plan.dst_mount_id)
-            sub = safe_relpath("dst_path", plan.dst_path)
+        elif mount_type is MountType.SFTP:
+            scfg = self.mounts.sftp_config_for(mount_id)
+            sub = safe_relpath(field, path)
             remote = posixpath.join(scfg.base_path, sub) if sub else scfg.base_path
-            label = plan.dst_name or "sftp"
+            label = mount_name or "sftp"
 
             def make_sftp() -> Destination:
                 return SftpDestination(connect(scfg), remote, label=label)
 
             return make_sftp
         else:
-            if dst_mp is None:
-                raise TransferError("Ziel-Anbindung ist nicht eingehängt")
-            sub = safe_relpath("dst_path", plan.dst_path)
-            local_root = dst_mp / sub if sub else dst_mp
-            kind = "cifs" if plan.dst_type is MountType.CIFS else "nfs"
+            if mp is None:
+                raise TransferError(f"{what}-Anbindung ist nicht eingehängt")
+            sub = safe_relpath(field, path)
+            local_root = mp / sub if sub else mp
+            kind = "cifs" if mount_type is MountType.CIFS else "nfs"
             create = True
 
         if src_root is not None and local_root.resolve() == src_root.resolve():
-            raise ValidationError("dst_path", "Quelle und Ziel sind derselbe Ordner")
+            raise ValidationError(field, f"Quelle und {what} sind derselbe Ordner")
 
         def make_local() -> Destination:
             return LocalDestination(local_root, kind, create_root=create)  # type: ignore[arg-type]

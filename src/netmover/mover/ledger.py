@@ -14,7 +14,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from netmover.db import session_scope
-from netmover.models import CopiedFile, FileFailure, utcnow
+from netmover.models import ArchivedFile, CopiedFile, FileFailure, utcnow
 
 CopyKey = tuple[str, int, int]  # (relpath, size, mtime_ns)
 
@@ -70,6 +70,53 @@ class Ledger:
             stale = [r[0] for r in rows if r[1] not in present]
             if stale:
                 s.execute(delete(CopiedFile).where(CopiedFile.id.in_(stale)))
+            return len(stale)
+
+    # -- Archiv ------------------------------------------------------------------------
+
+    def archived_keys(self, rule_id: int) -> set[CopyKey]:
+        with session_scope(self.session_factory) as s:
+            rows = s.execute(
+                select(ArchivedFile.src_relpath, ArchivedFile.size, ArchivedFile.mtime_ns).where(
+                    ArchivedFile.rule_id == rule_id
+                )
+            ).all()
+        return {(r[0], r[1], r[2]) for r in rows}
+
+    def record_archive(
+        self, rule_id: int, relpath: str, size: int, mtime_ns: int, archive_path: str
+    ) -> None:
+        with session_scope(self.session_factory) as s:
+            exists = s.scalar(
+                select(ArchivedFile.id).where(
+                    ArchivedFile.rule_id == rule_id,
+                    ArchivedFile.src_relpath == relpath,
+                    ArchivedFile.size == size,
+                    ArchivedFile.mtime_ns == mtime_ns,
+                )
+            )
+            if exists is None:
+                s.add(
+                    ArchivedFile(
+                        rule_id=rule_id,
+                        src_relpath=relpath,
+                        size=size,
+                        mtime_ns=mtime_ns,
+                        archive_path=archive_path,
+                    )
+                )
+
+    def prune_archived(self, rule_id: int, present: set[str]) -> int:
+        """Wie :meth:`prune_copied`: nur nach einem vollständigen Scan aufrufen."""
+        with session_scope(self.session_factory) as s:
+            rows = s.execute(
+                select(ArchivedFile.id, ArchivedFile.src_relpath).where(
+                    ArchivedFile.rule_id == rule_id
+                )
+            ).all()
+            stale = [r[0] for r in rows if r[1] not in present]
+            if stale:
+                s.execute(delete(ArchivedFile).where(ArchivedFile.id.in_(stale)))
             return len(stale)
 
     def failures(self, rule_id: int) -> dict[str, FailureInfo]:
