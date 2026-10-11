@@ -8,6 +8,18 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 
 ## [Unreleased]
 
+## [0.6.0] – 2026-10-11
+
+### Geändert
+- **Anmeldung je Netz konfigurierbar** (*Einstellungen → Anmeldung*): „Ohne Passwort
+  aus diesen Netzen“ und „Mit Passwort aus diesen Netzen“ (leer = alle übrigen).
+  Ist die zweite Liste ausgefüllt, werden alle anderen Netze abgewiesen (403, auch die
+  Anmeldeseite); `/healthz` und statische Dateien bleiben erreichbar. Ersetzt die
+  Auswahl „immer / vertraute Netze / nie“ aus 0.5.0 (`0.0.0.0/0, ::/0` = ganz aus;
+  gespeicherter Modus „nie“ gilt weiter).
+- Schutz vor Aussperren: Eine Einstellung, mit der die eigene Adresse keinen Zugang
+  mehr hätte, wird nicht gespeichert. `netmover reset-password` hebt auch Netz-Sperren auf.
+
 ## [0.5.0] – 2026-10-11
 
 ### Hinzugefügt
@@ -234,7 +246,8 @@ Erste Version.
 - Löschen von Zugangsdaten, die noch von einem Mount benutzt werden, trennt den
   Mount nicht mehr stillschweigend ab, sondern wird von der Datenbank abgelehnt.
 
-[Unreleased]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.5.0...HEAD
+[Unreleased]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.6.0...HEAD
+[0.6.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.5.0...v0.6.0
 [0.5.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.4.0...v0.5.0
 [0.4.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.3.0...v0.4.0
 [0.3.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.2.1...v0.3.0

@@ -19,9 +19,25 @@ Zeiten in Ortszeit (Europe/Berlin).
 | 2026-10-11 | 00:13 | 00:32 | 0:19  | –       | Menü, Anleitung, Roadmap, Uptime Kuma (0.3.0) |
 | 2026-10-11 | 00:31 | 00:50 | 0:19  | –       | Pausieren, Wartungsmodus, E-Mail (0.4.0) |
 | 2026-10-11 | 00:54 | 01:16 | 0:22  | –       | SFTP-Quelle, Zugangsdaten, Anmeldung (0.5.0) |
-| **Summe**  |       |       | **3:17** |      |                                        |
+| 2026-10-11 | 08:43 | 08:55 | 0:12  | –       | Anmeldung je Netz (0.6.0)              |
+| **Summe**  |       |       | **3:29** |      |                                        |
 
 ---
+
+## 2026-10-11 · 08:43–08:55 · Anmeldung je Netz (0.6.0)
+
+**Anlass** – Wunsch: Anmeldung abschalten, und zwar konfigurierbar, aus welchen Netzen
+mit und ohne Passwort. Zugriffe kamen aus 10.0.10.0/24 und 10.1.5.0/24 (Access-Log).
+
+**Erledigt**
+- `auth.access_decision()` als einzige Entscheidung (ohne PW / mit PW / abgewiesen),
+  benutzt von Middleware (403 für fremde Netze), Guard und Anmeldeseite.
+- Schutz vor Aussperren beim Speichern; `reset-password` hebt Sperren auf.
+- 19 Tests für die Anmeldung (336 gesamt).
+
+**Entscheidungen**
+- `/healthz` und `/static` nie sperren – Uptime Kuma kann in einem anderen Netz stehen.
+- Nicht-IP-Clients (z. B. Unix-Socket) gelten als „in keinem Netz“.
 
 ## 2026-10-11 · 00:54–01:16 · SFTP-Quelle, Zugangsdaten, Anmeldung abschaltbar (0.5.0)
 

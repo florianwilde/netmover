@@ -66,20 +66,23 @@
 </form>
 
 <h2 id="anmeldung">Anmeldung <a class="legend-help" href="/help#anmeldung" title="Hilfe">?</a></h2>
-<form class="form card stack" method="post" action="/settings/auth" data-dynamic>
+<form class="form card stack" method="post" action="/settings/auth">
   {{ csrf_field(csrf) }}
+  <p class="small muted">Deine Adresse gerade: <code>{{ client_ip }}</code></p>
   <div class="fields">
-    {{ select('auth_mode', 'Anmeldung erforderlich', [('always', 'immer (empfohlen)'), ('trusted', 'nicht aus vertrauten Netzen'), ('off', 'nie')], cfg.auth_mode) }}
-    <div class="field wide" data-show-for="auth_mode:trusted"><label for="f-nets">Vertrauenswürdige Netze</label>
-      <input id="f-nets" type="text" name="trusted_networks" value="{{ cfg.trusted_networks }}" placeholder="10.0.10.0/24, 192.168.1.20">
-      <span class="hint">Mit Komma getrennt. Deine Adresse gerade: <code>{{ client_ip }}</code>. Von allen anderen Adressen wird weiter nach dem Passwort gefragt.</span></div>
+    <div class="field wide"><label for="f-nets">Ohne Passwort aus diesen Netzen</label>
+      <input id="f-nets" type="text" name="trusted_networks" value="{{ cfg.trusted_networks }}" placeholder="z. B. 10.0.10.0/24, 10.1.5.0/24">
+      <span class="hint">Mit Komma getrennt; einzelne Adressen gehen auch. Leer = niemand ohne Passwort. <code>0.0.0.0/0, ::/0</code> = Anmeldung ganz aus.</span></div>
+    <div class="field wide"><label for="f-allowed">Mit Passwort aus diesen Netzen</label>
+      <input id="f-allowed" type="text" name="allowed_networks" value="{{ cfg.allowed_networks }}" placeholder="leer = alle übrigen Netze">
+      <span class="hint">Leer = von überall sonst mit Passwort. Ausgefüllt = <strong>alle anderen Netze werden abgewiesen</strong> (auch die Anmeldeseite). <code>/healthz</code> bleibt für die Überwachung erreichbar.</span></div>
     <div class="field"><label for="f-cur-auth">Aktuelles Passwort (zur Bestätigung)</label>
       <input id="f-cur-auth" type="password" name="current" autocomplete="current-password" required></div>
   </div>
-  <p class="msg warn small" data-show-for="auth_mode:off|auth_mode:trusted">NetMover läuft als root und kennt die Zugangsdaten deiner Freigaben.
-    Ohne Anmeldung kann jeder, der die Oberfläche erreicht, Anbindungen und Regeln ändern. „Nie“ nur hinter einem Reverse Proxy mit eigener Anmeldung (z. B. Authelia) verwenden.
-    Hinter einem Proxy außerdem <code>NETMOVER_FORWARDED_ALLOW_IPS</code> setzen, sonst sieht jede Anfrage aus, als käme sie vom Proxy.</p>
-  {% if loopback_trusted %}<p class="msg warn small">Die Liste enthält 127.0.0.1/::1. Läuft ein Reverse Proxy auf diesem Server, gilt dann <strong>jede</strong> Anfrage über den Proxy als vertrauenswürdig.</p>{% endif %}
+  <p class="msg warn small">NetMover läuft als root und kennt die Zugangsdaten deiner Freigaben. Wer die Oberfläche ohne Passwort erreicht,
+    kann alles ändern – Netze „ohne Passwort“ daher so eng wie möglich wählen. Hinter einem Reverse Proxy <code>NETMOVER_FORWARDED_ALLOW_IPS</code> setzen,
+    sonst sieht jede Anfrage aus, als käme sie vom Proxy. Eine Einstellung, mit der du dich selbst aussperren würdest, wird nicht gespeichert.</p>
+  {% if loopback_trusted %}<p class="msg warn small">„Ohne Passwort“ enthält 127.0.0.1/::1. Läuft ein Reverse Proxy auf diesem Server, gilt dann <strong>jede</strong> Anfrage über den Proxy als vertrauenswürdig.</p>{% endif %}
   <div class="row"><button class="primary">Anmeldung speichern</button></div>
 </form>
 

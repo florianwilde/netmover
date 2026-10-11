@@ -46,9 +46,12 @@ class AppSettings:
     smtp_password_enc: str = ""
     smtp_from: str = ""
     smtp_to: str = ""
-    # Anmeldung: "always" | "trusted" (ohne Anmeldung aus trusted_networks) | "off"
+    # Anmeldung: Netze ohne Passwort (trusted_networks), Netze mit Passwort
+    # (allowed_networks, leer = alle übrigen); alle anderen Netze werden abgewiesen.
+    # auth_mode "off" = ohne Anmeldung von überall (aus 0.5.0, weiterhin gültig).
     auth_mode: str = "always"
     trusted_networks: str = ""
+    allowed_networks: str = ""
 
 
 _PREFIX = "app."

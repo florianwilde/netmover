@@ -333,25 +333,33 @@ dreimal hintereinander gescheitert.
 
 ### Anmeldung {#anmeldung}
 
-Standardmäßig fragt NetMover immer nach dem Passwort. Unter *Einstellungen →
-Anmeldung* lässt sich das ändern (Bestätigung mit dem aktuellen Passwort):
+Unter *Einstellungen → Anmeldung* legst du fest, **aus welchen Netzen** es mit und
+ohne Passwort geht (Bestätigung mit dem aktuellen Passwort):
 
-| Einstellung | Wirkung |
+| Feld | Wirkung |
 |---|---|
-| **immer** (empfohlen) | Anmeldung bei jedem Zugriff |
-| **nicht aus vertrauenswürdigen Netzen** | ohne Passwort aus den eingetragenen Netzen, z. B. `10.0.10.0/24`; von überall sonst mit Passwort |
-| **nie** | keine Anmeldung – nur hinter einem Reverse Proxy mit eigener Anmeldung (z. B. Authelia, Authentik) |
+| **Ohne Passwort aus diesen Netzen** | z. B. `10.0.10.0/24, 10.1.5.0/24` – von dort keine Anmeldung. Leer = niemand. `0.0.0.0/0, ::/0` = Anmeldung ganz aus. |
+| **Mit Passwort aus diesen Netzen** | Leer = **alle übrigen** Netze mit Passwort. Ausgefüllt = nur von dort mit Passwort, **alle anderen Netze werden abgewiesen** (auch die Anmeldeseite). |
 
-Solange ohne Anmeldung gearbeitet wird, steht oben gelb „ohne Anmeldung“. Der Schutz
-gegen untergeschobene Formulare bleibt immer aktiv.
+Beispiel: Ohne Passwort aus dem Heimnetz `10.0.10.0/24`, mit Passwort aus dem
+VPN-Netz `10.8.0.0/24`, alles andere gesperrt.
+
+- Einzelne Adressen gehen auch (`192.168.1.20`).
+- Die Seite zeigt deine aktuelle Adresse. Eine Einstellung, mit der du dich selbst
+  aussperren würdest, wird nicht gespeichert.
+- `/healthz` bleibt für die Überwachung von überall erreichbar.
+- Solange du ohne Passwort arbeitest, steht oben gelb „ohne Anmeldung“. Der Schutz
+  gegen untergeschobene Formulare bleibt immer aktiv.
 
 > NetMover läuft als root und kennt die Zugangsdaten deiner Freigaben. Wer die
-> Oberfläche ohne Anmeldung erreicht, kann alles ändern. Läuft ein Reverse Proxy auf
-> demselben Server, kommen alle Anfragen von `127.0.0.1` – dann `127.0.0.1` nicht als
-> vertrauenswürdig eintragen und `NETMOVER_FORWARDED_ALLOW_IPS` setzen.
+> Oberfläche ohne Passwort erreicht, kann alles ändern – Netze „ohne Passwort“ daher
+> so eng wie möglich wählen. Läuft ein Reverse Proxy auf demselben Server, kommen
+> alle Anfragen von `127.0.0.1`: dann `127.0.0.1` nicht eintragen und
+> `NETMOVER_FORWARDED_ALLOW_IPS` setzen.
 
-Zurück zur Anmeldung: dieselbe Einstellung auf „immer“, oder auf dem Server
-`/opt/netmover/venv/bin/netmover reset-password` (setzt auch die Anmeldung zurück).
+Ausgesperrt oder Passwort vergessen? Auf dem Server
+`/opt/netmover/venv/bin/netmover reset-password` – setzt das Passwort zurück, schaltet
+die Anmeldung überall wieder ein und hebt Netz-Sperren auf.
 
 ### Export und Import {#export-import}
 

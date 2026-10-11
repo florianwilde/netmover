@@ -51,25 +51,59 @@ def parse_networks(raw: str) -> list[ipaddress.IPv4Network | ipaddress.IPv6Netwo
     return nets
 
 
-def login_bypass(request: Request, mode: str, trusted: str) -> str | None:
-    """Grund, warum keine Anmeldung nötig ist (``"off"``/``"trusted"``), sonst ``None``.
+ACCESS_NOPW, ACCESS_PW, ACCESS_DENY = "nopw", "pw", "deny"
+
+
+def _address(host: str | None) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    if not host:
+        return None
+    try:
+        return ipaddress.ip_address(host)
+    except ValueError:
+        return None
+
+
+def _networks_or_empty(raw: str) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    try:
+        return parse_networks(raw)
+    except ValueError:
+        return []  # gespeicherte Werte sind beim Speichern geprüft
+
+
+def access_decision(host: str | None, mode: str, trusted: str, allowed: str) -> str:
+    """Wie darf diese Adresse auf die Oberfläche zugreifen?
+
+    1. aus ``trusted`` (oder Modus „off“): **ohne Passwort**,
+    2. ``allowed`` leer oder Adresse darin: **mit Passwort**,
+    3. sonst: **abgewiesen**.
 
     Hinter einem Reverse Proxy ist die Client-Adresse nur dann echt, wenn
     ``NETMOVER_FORWARDED_ALLOW_IPS`` den Proxy kennt – sonst sähe jede Anfrage aus,
     als käme sie vom Proxy selbst."""
     if mode == AUTH_OFF:
-        return AUTH_OFF
-    if mode != AUTH_TRUSTED or request.client is None:
+        return ACCESS_NOPW
+    addr = _address(host)
+    if addr is not None and any(addr in n for n in _networks_or_empty(trusted)):
+        return ACCESS_NOPW
+    allowed_nets = _networks_or_empty(allowed)
+    if allowed_nets and (addr is None or not any(addr in n for n in allowed_nets)):
+        return ACCESS_DENY
+    return ACCESS_PW
+
+
+def client_host(request: Request) -> str | None:
+    return request.client.host if request.client else None
+
+
+def login_bypass(request: Request, mode: str, trusted: str, allowed: str = "") -> str | None:
+    """Grund, warum keine Anmeldung nötig ist (``"off"``/``"trusted"``), sonst ``None``."""
+    if access_decision(client_host(request), mode, trusted, allowed) != ACCESS_NOPW:
         return None
-    try:
-        addr = ipaddress.ip_address(request.client.host)
-    except ValueError:
-        return None
-    try:
-        nets = parse_networks(trusted)
-    except ValueError:
-        return None
-    return AUTH_TRUSTED if any(addr in n for n in nets) else None
+    return AUTH_OFF if mode == AUTH_OFF or _covers_everything(trusted) else AUTH_TRUSTED
+
+
+def _covers_everything(raw: str) -> bool:
+    return any(n.prefixlen == 0 for n in _networks_or_empty(raw))
 
 
 def includes_loopback(raw: str) -> bool:

@@ -64,10 +64,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             row = s.get(Setting, PASSWORD_KEY)
             if row is not None:
                 s.delete(row)
-            # Anmeldung wieder einschalten (falls abgeschaltet)
-            mode = s.get(Setting, "app.auth_mode")
-            if mode is not None:
-                mode.value = '"always"'
+            # Anmeldung wieder überall einschalten und Netz-Sperren aufheben
+            for key, value in (
+                ("app.auth_mode", '"always"'),
+                ("app.trusted_networks", '""'),
+                ("app.allowed_networks", '""'),
+            ):
+                setting = s.get(Setting, key)
+                if setting is not None:
+                    setting.value = value
             s.commit()
         engine.dispose()
         print("Passwort gelöscht. Dienst neu starten; der Einrichtungscode steht im Log.")

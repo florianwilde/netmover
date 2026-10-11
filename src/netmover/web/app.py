@@ -269,7 +269,7 @@ async def guard(request: Request) -> None:
     if not auth.password_is_set(state.session_factory):
         raise auth.LoginRequired(setup=True)
     cfg = load_settings(state.session_factory)
-    bypass = auth.login_bypass(request, cfg.auth_mode, cfg.trusted_networks)
+    bypass = auth.login_bypass(request, cfg.auth_mode, cfg.trusted_networks, cfg.allowed_networks)
     if bypass:
         request.state.auth_bypass = bypass
     elif not auth.is_logged_in(request):
@@ -364,7 +364,7 @@ async def login_form(request: Request) -> Response:
     if not auth.password_is_set(state.session_factory):
         return redirect("/setup")
     cfg = load_settings(state.session_factory)
-    if auth.login_bypass(request, cfg.auth_mode, cfg.trusted_networks):
+    if auth.login_bypass(request, cfg.auth_mode, cfg.trusted_networks, cfg.allowed_networks):
         return redirect("/")
     return render(request, "login.html")
 
@@ -1235,39 +1235,54 @@ async def settings_password(request: Request) -> Response:
 
 @protected.post("/settings/auth", response_class=HTMLResponse)
 async def settings_auth(request: Request) -> Response:
-    """Anmeldung abschalten bzw. auf vertrauenswürdige Netze beschränken.
-    Nur mit dem aktuellen Passwort."""
+    """Netze ohne / mit Passwort festlegen. Nur mit dem aktuellen Passwort und nie so,
+    dass man sich mit der eigenen Adresse aussperrt."""
     state = nm(request)
     form = _form_dict(await request.form())
+    back = redirect("/settings#anmeldung")
     if not await run_in_threadpool(
         auth.verify_password, state.session_factory, form.get("current", "")
     ):
         flash(request, "Aktuelles Passwort falsch – Anmeldung unverändert.", "error")
-        return redirect("/settings#anmeldung")
-    mode = form.get("auth_mode", auth.AUTH_ALWAYS)
-    networks = (form.get("trusted_networks") or "").strip()
-    if mode not in auth.AUTH_MODES:
-        flash(request, "Ungültige Auswahl.", "error")
-        return redirect("/settings#anmeldung")
+        return back
+    trusted = (form.get("trusted_networks") or "").strip()
+    allowed = (form.get("allowed_networks") or "").strip()
     try:
-        nets = auth.parse_networks(networks)
+        auth.parse_networks(trusted)
+        auth.parse_networks(allowed)
     except ValueError as exc:
         flash(request, str(exc), "error")
-        return redirect("/settings#anmeldung")
-    if mode == auth.AUTH_TRUSTED and not nets:
-        flash(request, "Bitte mindestens ein vertrauenswürdiges Netz angeben.", "error")
-        return redirect("/settings#anmeldung")
+        return back
+    me = auth.client_host(request)
+    if auth.access_decision(me, auth.AUTH_ALWAYS, trusted, allowed) == auth.ACCESS_DENY:
+        flash(
+            request,
+            f"Nicht gespeichert: Damit wärst du selbst ausgesperrt (deine Adresse {me}). "
+            "Trage dein Netz bei „mit“ oder „ohne Passwort“ ein.",
+            "error",
+        )
+        return back
     cfg = load_settings(state.session_factory)
-    cfg.auth_mode, cfg.trusted_networks = mode, networks
+    cfg.trusted_networks, cfg.allowed_networks = trusted, allowed
+    cfg.auth_mode = auth.AUTH_TRUSTED if trusted else auth.AUTH_ALWAYS
     save_settings(state.session_factory, cfg)
-    event(log, "auth.mode_changed", level=30, mode=mode, networks=networks)
-    msgs = {
-        auth.AUTH_ALWAYS: "Anmeldung ist wieder immer erforderlich.",
-        auth.AUTH_TRUSTED: f"Ohne Anmeldung aus: {networks}. Von überall sonst mit Passwort.",
-        auth.AUTH_OFF: "Anmeldung abgeschaltet – NetMover ist ohne Passwort bedienbar.",
-    }
-    flash(request, msgs[mode], "info" if mode == auth.AUTH_ALWAYS else "warn")
-    return redirect("/settings#anmeldung")
+    event(
+        log,
+        "auth.access_changed",
+        level=30,
+        without_password=trusted,
+        with_password=allowed or "alle übrigen",
+    )
+    parts = [f"ohne Passwort aus: {trusted}" if trusted else "überall mit Passwort"]
+    parts.append(
+        f"mit Passwort nur aus: {allowed} – alle anderen Netze abgewiesen"
+        if allowed
+        else "alle übrigen Netze mit Passwort"
+    )
+    flash(
+        request, "Anmeldung gespeichert: " + "; ".join(parts) + ".", "warn" if trusted else "info"
+    )
+    return back
 
 
 @protected.get("/settings/export")
@@ -1370,6 +1385,35 @@ def create_app(settings: Settings | None = None, state: NetMover | None = None) 
         redoc_url=None,
         openapi_url=None,
     )
+
+    @app.middleware("http")
+    async def network_access(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        path = request.url.path
+        if not (path.startswith("/healthz") or path.startswith("/static/")):
+            app_state = getattr(request.app.state, "nm", None)
+            if app_state is not None:
+                cfg = load_settings(app_state.session_factory)
+                decision = auth.access_decision(
+                    auth.client_host(request),
+                    cfg.auth_mode,
+                    cfg.trusted_networks,
+                    cfg.allowed_networks,
+                )
+                if decision == auth.ACCESS_DENY:
+                    event(
+                        log,
+                        "auth.denied_network",
+                        level=30,
+                        client=auth.client_host(request) or "?",
+                    )
+                    return HTMLResponse(
+                        "<!doctype html><meta charset=utf-8><title>NetMover</title>"
+                        "<p>Zugriff aus diesem Netz ist nicht erlaubt.</p>",
+                        status_code=403,
+                    )
+        return await call_next(request)
 
     @app.middleware("http")
     async def security_headers(
