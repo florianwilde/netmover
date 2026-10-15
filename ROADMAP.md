@@ -28,6 +28,7 @@ Legende: ✅ erledigt · 🔨 in Arbeit · 📋 geplant · 💡 Idee (noch nicht
 
 | Version | Thema |
 |---|---|
+| 0.9.0 | Regeln kopieren (Kopie zunächst deaktiviert) |
 | 0.8.0 | Anbindungen kopieren inklusive Zugangsdaten |
 | 0.7.0 | Archiv je Regel: Kopie ins Ziel und ins Archiv, Quelle erst danach löschen |
 | 0.6.0 | Anmeldung je Netz: ohne Passwort / mit Passwort / abgewiesen, Schutz vor Aussperren |

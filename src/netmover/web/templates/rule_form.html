@@ -1,8 +1,11 @@
 {% extends "base.html" %}
 {% from "macros.html" import field, select, check %}
-{% block title %}{{ 'Regel bearbeiten' if rule_id else 'Neue Regel' }}{% endblock %}
+{% block title %}{{ 'Regel bearbeiten' if rule_id else ('Regel kopieren' if copy_of else 'Neue Regel') }}{% endblock %}
 {% block content %}
-<h1>{{ 'Regel bearbeiten' if rule_id else 'Neue Regel' }}</h1>
+<h1>{% if rule_id %}Regel bearbeiten{% elif copy_of %}Kopie von „{{ copy_of }}“{% else %}Neue Regel{% endif %}</h1>
+{% if copy_of %}<p class="msg info small">Alle Einstellungen stammen aus „{{ copy_of }}“. Die Kopie ist zunächst
+  <strong>deaktiviert</strong>, damit sie nicht mit dem Original um dieselben Dateien konkurriert – Quelle bzw. Ziel
+  anpassen, speichern, Probelauf machen, dann aktivieren. Protokoll und Buchführung beginnen bei der Kopie neu.</p>{% endif %}
 {% if errors.get('_') %}<p class="msg error">{{ errors['_'] }}</p>{% endif %}
 {% if not src_mounts %}<p class="msg info">Zuerst eine Anbindung als Quelle <a href="/mounts/new">anlegen</a>.</p>{% endif %}
 <form class="form" method="post" data-dynamic>

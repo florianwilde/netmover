@@ -44,6 +44,7 @@ from netmover.admin import (
     mount_input_from_model,
     parse_mount_form,
     parse_rule_form,
+    rule_copy_name,
     rule_input_from_model,
     save_mount,
     save_rule,
@@ -902,6 +903,7 @@ def _rule_form(
     errors: dict[str, str],
     rule_id: int | None,
     status_code: int = 200,
+    copy_of: str | None = None,
 ) -> Response:
     with nm(request).session_factory() as s:
         mounts = s.scalars(select(Mount).order_by(Mount.name)).all()
@@ -915,6 +917,7 @@ def _rule_form(
         d=d,
         errors=errors,
         rule_id=rule_id,
+        copy_of=copy_of,
         src_mounts=mounts,
         src_options=[("", "– wählen –")] + [(m.id, f"{m.name} ({m.type.value})") for m in mounts],
         dst_options=[("", "– wählen –")] + [(m.id, f"{m.name} ({m.type.value})") for m in mounts],
@@ -942,25 +945,47 @@ async def rule_edit(request: Request, rule_id: int) -> Response:
     return _rule_form(request, d, {}, rule_id)
 
 
+@protected.get("/rules/{source_id}/copy", response_class=HTMLResponse)
+async def rule_copy(request: Request, source_id: int) -> Response:
+    """Neue Regel, vorausgefüllt aus einer bestehenden – zunächst deaktiviert, damit sie
+    nicht sofort mit dem Original um dieselben Dateien konkurriert."""
+    with nm(request).session_factory() as s:
+        src = s.get(Rule, source_id)
+        if src is None:
+            return redirect("/rules")
+        d = rule_input_from_model(src)
+        d.name = rule_copy_name(s, src.name)
+        d.enabled = False
+        source_name = src.name
+    return _rule_form(request, d, {}, None, copy_of=source_name)
+
+
 @protected.post("/rules/new", response_class=HTMLResponse)
 @protected.post("/rules/{rule_id}/edit", response_class=HTMLResponse)
-async def rule_save(request: Request, rule_id: int | None = None) -> Response:
+@protected.post("/rules/{source_id}/copy", response_class=HTMLResponse)
+async def rule_save(
+    request: Request, rule_id: int | None = None, source_id: int | None = None
+) -> Response:
     state = nm(request)
     form = _form_dict(await request.form())
     with session_scope(state.session_factory) as s:
+        source = s.get(Rule, source_id) if source_id is not None else None
+        copy_of = source.name if source is not None else None
         d, errors = parse_rule_form(s, form)
         r = None
         if not errors:
             try:
-                r, errors = save_rule(s, d, rule_id)
+                r, errors = save_rule(s, d, rule_id)  # Kopie: rule_id ist None → neue Regel
             except AdminError as exc:
                 errors = {"_": str(exc)}
         if errors or r is None:
             s.rollback()
-            return _rule_form(request, d, errors, rule_id, status_code=400)
-        name = r.name
+            return _rule_form(request, d, errors, rule_id, status_code=400, copy_of=copy_of)
+        name, enabled = r.name, r.enabled
     state.scheduler.sync()
     flash(request, f"Regel „{name}“ gespeichert.")
+    if copy_of and not enabled:
+        flash(request, "Die Kopie ist deaktiviert. Probelauf machen, dann aktivieren.", "info")
     return redirect("/rules")
 
 

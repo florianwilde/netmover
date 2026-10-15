@@ -18,6 +18,7 @@
       <button class="small" hx-post="/rules/{{ r.id }}/dryrun" hx-target="#dry-{{ r.id }}" hx-swap="innerHTML">Probelauf <span class="htmx-indicator">…</span></button>
       <form class="inline" method="post" action="/rules/{{ r.id }}/toggle">{{ csrf_field(csrf) }}<button class="small">{{ 'Deaktivieren' if r.enabled else 'Aktivieren' }}</button></form>
       <a class="btn small" href="/rules/{{ r.id }}/edit">Bearbeiten</a>
+      <a class="btn small" href="/rules/{{ r.id }}/copy" title="Neue Regel mit denselben Einstellungen">Kopieren</a>
       <form class="inline" method="post" action="/rules/{{ r.id }}/delete" data-confirm="Regel „{{ r.name }}“ und ihr Protokoll löschen?">{{ csrf_field(csrf) }}<button class="small danger">Löschen</button></form>
     </div>
   </div>

@@ -668,6 +668,16 @@ def parse_rule_form(s: Session, form: Mapping[str, str]) -> tuple[RuleInput, Err
     return d, errors
 
 
+def rule_copy_name(s: Session, name: str) -> str:
+    """„Scans (Kopie)“, „Scans (Kopie 2)“, … – frei in der Datenbank."""
+    base = f"{name} (Kopie)"[:100]
+    candidate, n = base, 1
+    while s.scalar(select(Rule.id).where(Rule.name == candidate)) is not None:
+        n += 1
+        candidate = f"{name} (Kopie {n})"[:100]
+    return candidate
+
+
 def save_rule(s: Session, d: RuleInput, rule_id: int | None = None) -> tuple[Rule | None, Errors]:
     dup = s.scalar(select(Rule.id).where(Rule.name == d.name))
     if dup is not None and dup != rule_id:

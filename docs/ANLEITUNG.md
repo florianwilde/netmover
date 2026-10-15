@@ -226,6 +226,17 @@ Synology-Verwaltungsordner (`@eaDir`, `#recycle`).
 | **Modus setzen** | z. B. `0644`; leer = wie die Quelldatei |
 | **Quarantäneordner** | Dateien, die mehrmals hintereinander scheitern, werden dorthin verschoben (relativ zur Quell-Anbindung), statt es endlos zu versuchen. Leer = keine Quarantäne. |
 
+### Regel kopieren {#regel-kopieren}
+
+Für eine ähnliche Regel – etwa für einen zweiten Quell-Unterordner – bei der Vorlage
+auf **Kopieren** klicken. Alle Einstellungen (Filter, Ziel, Archiv, Sicherheit,
+Rechte) sind übernommen, der Name lautet „… (Kopie)“.
+
+Die Kopie ist zunächst **deaktiviert**: Mit gleicher Quelle würde sie sonst sofort mit
+dem Original um dieselben Dateien konkurrieren. Also Quelle bzw. Ziel anpassen,
+speichern, **Probelauf**, dann **Aktivieren**. Protokoll und Buchführung beginnen bei
+der Kopie neu.
+
 ### Probelauf {#probelauf}
 
 **Probelauf** zeigt in einer Tabelle, welche Datei wohin ginge – **ohne etwas zu
@@ -428,7 +439,9 @@ deaktiviert, Zugangsdaten müssen neu eingegeben werden.
 ### Jede Person in einen eigenen Ordner {#beispiel-unterordner}
 
 Scannt jede Person in einen eigenen Unterordner (`Scans/max`, `Scans/erika`): pro
-Person eine Regel mit eigenem **Unterordner** in der Quelle und eigenem Ziel.
+Person eine Regel mit eigenem **Unterordner** in der Quelle und eigenem Ziel. Am
+schnellsten: die erste Regel einrichten, dann **Kopieren** und nur Unterordner und
+Ziel ändern.
 
 ### Kopie als zusätzliche Sicherung {#beispiel-kopie}
 

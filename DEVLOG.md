@@ -22,9 +22,21 @@ Zeiten in Ortszeit (Europe/Berlin).
 | 2026-10-11 | 08:43 | 08:55 | 0:12  | –       | Anmeldung je Netz (0.6.0)              |
 | 2026-10-12 | 00:14 | 00:34 | 0:20  | –       | Archiv je Regel (0.7.0)                |
 | 2026-10-12 | 00:46 | 00:55 | 0:09  | –       | Anbindungen kopieren (0.8.0)           |
-| **Summe**  |       |       | **3:58** |      |                                        |
+| 2026-10-15 | 09:17 | 09:26 | 0:09  | –       | Regeln kopieren (0.9.0)                |
+| **Summe**  |       |       | **4:07** |      |                                        |
 
 ---
+
+## 2026-10-15 · 09:17–09:26 · Regeln kopieren (0.9.0)
+
+**Erledigt** – Knopf „Kopieren“, Route `/rules/{id}/copy` (GET Formular, POST
+speichern), `rule_copy_name`. 5 Tests (362 gesamt); Gegenprobe „Kopie aktiv“ schlägt
+an (2 Tests).
+
+**Entscheidung** – Kopie startet deaktiviert: Mit identischer Quelle würden Original
+und Kopie sonst sofort parallel dieselben Dateien bearbeiten (doppelte Lieferung bzw.
+Kollisionen). Protokoll und Buchführung (`copied_files`, `archived_files`) werden
+bewusst nicht mitkopiert – die Kopie ist eine neue Regel.
 
 ## 2026-10-12 · 00:46–00:55 · Anbindungen kopieren (0.8.0)
 

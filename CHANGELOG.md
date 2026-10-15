@@ -8,6 +8,14 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 
 ## [Unreleased]
 
+## [0.9.0] – 2026-10-15
+
+### Hinzugefügt
+- **Regeln kopieren** (Knopf „Kopieren“): alle Einstellungen inklusive Archiv
+  übernommen, Name „… (Kopie)“. Die Kopie ist zunächst **deaktiviert**, damit sie nicht
+  mit dem Original um dieselben Dateien konkurriert; Protokoll und Buchführung
+  beginnen neu.
+
 ## [0.8.0] – 2026-10-12
 
 ### Hinzugefügt
@@ -269,7 +277,8 @@ Erste Version.
 - Löschen von Zugangsdaten, die noch von einem Mount benutzt werden, trennt den
   Mount nicht mehr stillschweigend ab, sondern wird von der Datenbank abgelehnt.
 
-[Unreleased]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.8.0...HEAD
+[Unreleased]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.9.0...HEAD
+[0.9.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.8.0...v0.9.0
 [0.8.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.7.0...v0.8.0
 [0.7.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.6.0...v0.7.0
 [0.6.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.5.0...v0.6.0
