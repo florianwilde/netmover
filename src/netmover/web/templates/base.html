@@ -47,6 +47,7 @@
   <div class="nav-group">
     <div class="nav-title">System</div>
     {{ item('settings', '/settings', 'Einstellungen') }}
+    {{ item('backup', '/backup', 'Sicherung', '' if not nav or nav.backup_ok else 'überfällig', '' if not nav or nav.backup_ok else 'bad') }}
     {{ item('help', '/help', 'Hilfe') }}
   </div>
   <div class="nav-foot">

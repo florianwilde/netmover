@@ -198,7 +198,7 @@ class RuleRunner:
         try:
             make_source = self._source_factory(plan, src_mp)
             src_root = src_mp / plan.src_subpath if src_mp and plan.src_subpath else src_mp
-            make_dest = self._target(
+            make_dest = self.destination_factory(
                 "dst_path",
                 plan.dst_mount_id,
                 plan.dst_type,
@@ -208,7 +208,7 @@ class RuleRunner:
                 src_root,
             )
             make_archive = (
-                self._target(
+                self.destination_factory(
                     "archive_path",
                     plan.archive_mount_id,
                     plan.archive_type,
@@ -291,7 +291,7 @@ class RuleRunner:
 
         return make_local
 
-    def _target(
+    def destination_factory(
         self,
         field: str,
         mount_id: int | None,
@@ -302,7 +302,7 @@ class RuleRunner:
         src_root: Path | None,
     ) -> Callable[[], Destination]:
         """Ziel oder Archiv: lokaler Pfad (``mount_id`` None), SFTP oder Kernel-Mount."""
-        what = "Archiv" if field == "archive_path" else "Ziel"
+        what = {"archive_path": "Archiv", "backup_path": "Sicherungsziel"}.get(field, "Ziel")
         if mount_id is None:
             root = Path(safe_abspath(field, path))
             if self._under_mount_base(root):

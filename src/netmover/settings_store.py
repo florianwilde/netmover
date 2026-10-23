@@ -52,6 +52,13 @@ class AppSettings:
     auth_mode: str = "always"
     trusted_networks: str = ""
     allowed_networks: str = ""
+    # Datensicherung (backup.py); Passphrase Fernet-verschlüsselt
+    backup_enabled: bool = False
+    backup_mount_id: int = 0  # 0 = kein Ziel
+    backup_path: str = ""
+    backup_time: str = "03:30"
+    backup_keep: int = 14
+    backup_passphrase_enc: str = ""
 
 
 _PREFIX = "app."

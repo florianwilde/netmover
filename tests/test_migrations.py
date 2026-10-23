@@ -175,3 +175,47 @@ def test_upgrade_from_0002_keeps_everything_linked_to_rules(tmp_path: Path) -> N
     assert c.execute("SELECT waiting_since FROM rules").fetchone()[0] is None
     assert c.execute("SELECT username FROM mounts WHERE id = 2").fetchone()[0] == "paperless"
     c.close()
+
+
+# -- Pflicht für jede (auch künftige) Migration -------------------------------------------------
+
+
+def _revisions() -> list[str]:
+    from alembic.script import ScriptDirectory
+
+    script = ScriptDirectory.from_config(alembic_config("sqlite://"))
+    return [r.revision for r in reversed(list(script.walk_revisions()))]
+
+
+def _invariants(db: Path) -> tuple[object, ...]:
+    st = _state(db)
+    assert st["tmp_tables"] == [], "Reste einer Batch-Migration"
+    assert st["fk_violations"] == [], "Fremdschlüssel verletzt"
+    return st["mounts"], st["rules"], st["run_items"]
+
+
+@pytest.mark.parametrize("rev", _revisions()[1:])
+def test_every_migration_up_and_down_on_populated_db(tmp_path: Path, rev: str) -> None:
+    """Jede Migration einzeln: hoch und wieder runter auf einer Datenbank mit Daten –
+    ohne Fremdschlüsselfehler, ohne Reste, ohne Datenverlust. Neue Migrationen werden
+    hier automatisch erfasst."""
+    revs = _revisions()
+    prev = revs[revs.index(rev) - 1]
+    db = tmp_path / "pflicht.db"
+    url = f"sqlite:///{db}"
+    upgrade(url, revs[0])
+    _seed(db)
+    upgrade(url, prev)
+    before = _invariants(db)
+    upgrade(url, rev)
+    assert _state(db)["version"] == rev
+    assert _invariants(db) == before
+    command.downgrade(alembic_config(url), prev)
+    assert _state(db)["version"] == prev
+    assert _invariants(db) == before
+
+
+def test_migration_files_are_named_after_their_revision() -> None:
+    versions = Path(__file__).parent.parent / "src/netmover/migrations/versions"
+    names = sorted(p.name.split("_", 1)[0] for p in versions.glob("[0-9]*.py"))
+    assert names == _revisions()

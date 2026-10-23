@@ -33,8 +33,17 @@ if [ ! -f /etc/netmover/netmover.env ]; then
 fi
 install -d -m 0755 /mnt/netmover
 
-echo "==> Update-Skript"
+echo "==> Update-Skript und Kommandozeile"
 install -m 0755 "$(dirname "$0")/update.sh" /usr/local/sbin/netmover-update
+# netmover backup/restore/… mit derselben Konfiguration wie der Dienst
+cat > /usr/local/sbin/netmover <<EOF
+#!/bin/sh
+set -a
+[ -r /etc/netmover/netmover.env ] && . /etc/netmover/netmover.env
+set +a
+exec "$PREFIX/venv/bin/netmover" "\$@"
+EOF
+chmod 0755 /usr/local/sbin/netmover
 
 echo "==> systemd"
 install -m 0644 "$(dirname "$0")/netmover.service" /etc/systemd/system/netmover.service

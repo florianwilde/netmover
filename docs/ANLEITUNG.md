@@ -10,7 +10,8 @@ stehen im [README](../README.md).
 **Inhalt:** [Begriffe](#begriffe) · [Erste Anmeldung](#erste-anmeldung) ·
 [Zugangsdaten](#zugangsdaten) · [Anbindungen](#anbindungen) · [Regeln](#regeln) · [Archiv](#archiv) ·
 [Probelauf](#probelauf) · [Status](#status) · [Wartungsmodus](#wartungsmodus) · [Protokoll](#protokoll) ·
-[Einstellungen](#einstellungen) · [Anmeldung](#anmeldung) · [Uptime Kuma](#uptime-kuma) · [Beispiele](#beispiele) · [Häufige Fragen](#fragen)
+[Einstellungen](#einstellungen) · [Anmeldung](#anmeldung) · [Uptime Kuma](#uptime-kuma) ·
+[Sicherung](#sicherung) · [Beispiele](#beispiele) · [Häufige Fragen](#fragen)
 
 ## Die vier Begriffe {#begriffe}
 
@@ -384,7 +385,36 @@ HTTP-Monitore*. Mit einem Monitor pro Anbindung und Regel sieht man in Kuma sofo
 
 Als Problem gilt: Scheduler steht, eine aktive Anbindung ist im Fehlerzustand, eine
 aktive Regel hatte länger als das Dreifache ihres Intervalls keinen Erfolg oder ist
-dreimal hintereinander gescheitert.
+dreimal hintereinander gescheitert, oder die [Sicherung](#sicherung) ist überfällig.
+
+**3. Werte auslesen (JSON-Abfrage)** – `/healthz` und `/healthz/rule/<nummer>`
+liefern unter `metrics` Kennzahlen der letzten 24 Stunden (Probeläufe zählen nicht):
+
+| Feld | Bedeutung |
+|---|---|
+| `files_24h` | verschobene bzw. kopierte Dateien |
+| `failed_24h` | Dateien, die gescheitert sind (werden erneut versucht) |
+| `quarantined_24h` | Dateien, die in Quarantäne verschoben wurden |
+| `errors_24h` | abgebrochene Läufe (z. B. Anbindung nicht erreichbar) |
+| `pending_failures` | Dateien, die gerade auf einen neuen Versuch warten |
+| `last_moved_at` | Zeitpunkt der letzten verschobenen Datei (UTC) |
+
+`/healthz` enthält die Summe und unter `metrics.rules.<nummer>` jede Regel einzeln.
+In Kuma: Typ *HTTP(s) – JSON-Abfrage*, dann Ausdruck, Bedingung und erwarteter Wert,
+zum Beispiel:
+
+| Monitor | Adresse | Ausdruck | Bedingung | Wert |
+|---|---|---|---|---|
+| Gesamtzustand | `/healthz` | `status` | `==` | `ok` |
+| Alarm bei Quarantäne | `/healthz` | `metrics.quarantined_24h` | `==` | `0` |
+| Regel ohne Dateifehler | `/healthz/rule/1` | `metrics.failed_24h` | `==` | `0` |
+| Sicherung | `/healthz/backup` | `status` | `==` | `ok` |
+
+Ältere Kuma-Versionen (1.x) kennen nur „erwarteter Wert = Ergebnis“; die Beispiele
+funktionieren dort genauso. Antwortet NetMover mit 503 (irgendein Problem), meldet
+Kuma auch einen Werte-Monitor als gestört – das ist gewollt.
+
+Beim Push zeigt Kuma als Nachricht z. B. „OK · 24 h: 12 Dateien“.
 
 ### Anmeldung {#anmeldung}
 
@@ -415,6 +445,50 @@ VPN-Netz `10.8.0.0/24`, alles andere gesperrt.
 Ausgesperrt oder Passwort vergessen? Auf dem Server
 `/opt/netmover/venv/bin/netmover reset-password` – setzt das Passwort zurück, schaltet
 die Anmeldung überall wieder ein und hebt Netz-Sperren auf.
+
+### Sicherung {#sicherung}
+
+*System → Sicherung*. NetMover sichert täglich seine Datenbank **und** den Schlüssel
+`secret.key` – also alle Anbindungen, Regeln, Zugangsdaten und Einstellungen – auf
+eine Anbindung, am besten eine eigene Freigabe auf dem NAS.
+
+1. Auf dem NAS eine Freigabe anlegen (z. B. `Backup`), in NetMover als Anbindung
+   eintragen und testen.
+2. *Sicherung*: Anbindung wählen, Unterordner (z. B. `netmover`), Uhrzeit, wie viele
+   Sicherungen behalten werden, und eine **Passphrase** (mindestens 12 Zeichen).
+3. *Tägliche Sicherung einschalten*, speichern, **Jetzt sichern**.
+4. **Passphrase im Passwortmanager ablegen.** Ohne sie ist die Sicherung wertlos.
+
+Die Sicherung ist mit der Passphrase verschlüsselt (scrypt + Fernet): Wer nur Zugriff
+aufs NAS hat, kommt nicht an die Zugangsdaten. Vor dem Hochladen öffnet NetMover die
+Datei probeweise und prüft die Datenbank; hochgeladen wird wie bei Regeln über eine
+`.part`-Datei. Danach werden ältere NetMover-Sicherungen über die eingestellte Anzahl
+hinaus gelöscht – andere Dateien im Ordner nie.
+
+Fällt der Termin aus (Server aus, NAS weg), holt NetMover ihn nach; nach einem
+Fehler versucht es stündlich erneut und meldet den ersten Fehlschlag per E-Mail bzw.
+Webhook. Gab es zwei Tage lang keine erfolgreiche Sicherung, gilt das als Problem
+(Statusampel, `/healthz`, eigener Monitor `/healthz/backup`).
+
+Eine neue Passphrase gilt nur für künftige Sicherungen; ältere brauchen weiter die
+alte.
+
+**Wiederherstellen** (neuer Server, gleiche oder neuere NetMover-Version):
+
+```sh
+# NetMover wie im README installieren, dann:
+systemctl stop netmover
+netmover restore /pfad/zu/netmover-<host>-<datum>.nmbak   # fragt nach der Passphrase
+systemctl start netmover
+```
+
+Die bisherigen Dateien legt `restore` vorher in
+`/var/lib/netmover/vor-wiederherstellung-<zeit>/` ab. Die Datenbank wird anschließend
+auf den Stand der installierten Version migriert. Die Sicherungsdatei holst du z. B.
+mit `scp` vom NAS oder hängst die Freigabe kurz von Hand ein.
+
+Eine Sicherung von Hand in eine Datei: `netmover backup /root/` (verwendet die
+Passphrase aus den Einstellungen).
 
 ### Export und Import {#export-import}
 

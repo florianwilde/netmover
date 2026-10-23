@@ -388,12 +388,20 @@ findmnt -R /mnt/netmover                     # was ist wirklich eingehängt?
 ## Sicherheit
 
 - **Nicht ins Internet stellen** (siehe [Reverse Proxy](#reverse-proxy-mit-tls)).
+- **HTTP im internen Netz ist eine bewusste Entscheidung**, wenn das Netz
+  vertrauenswürdig ist (Heimnetz, eigenes VLAN): Die Oberfläche läuft dann
+  unverschlüsselt auf Port 8080, die Anmeldung kann per Netz abgeschaltet werden
+  (*Einstellungen → Anmeldung*). Wer im selben Netz mitlesen kann, könnte Passwörter
+  sehen, die man in Formulare eingibt. Für fremde oder gemischte Netze den
+  [Reverse Proxy mit TLS](#reverse-proxy-mit-tls) davorsetzen.
 - Zugangsdaten liegen nur verschlüsselt in der Datenbank (Fernet, Schlüssel
   `secret.key`, 0600). Die Oberfläche zeigt sie nie an; in der Prozessliste stehen
   sie ebenfalls nie, weil `mount.cifs` eine kurzlebige Credentials-Datei bekommt.
   Ausgaben von `mount` werden geschwärzt, bevor sie protokolliert werden.
 - **Sichere `secret.key` zusammen mit der Datenbank.** Ohne den Schlüssel sind die
-  gespeicherten Passwörter verloren.
+  gespeicherten Passwörter verloren. Das erledigt die tägliche, mit Passphrase
+  verschlüsselte [Sicherung](docs/ANLEITUNG.md#sicherung) (*System → Sicherung*);
+  Wiederherstellen mit `netmover restore <datei>`.
 - Anmeldung:
   - Ein Administratorkonto mit Argon2-Passworthash.
   - Sperre nach 5 Fehlversuchen.
@@ -430,7 +438,8 @@ Aufbau:
 | `mover/` | Scan, Stabilität, atomares Schreiben, Kollisionen, Buchführung, Regellauf |
 | `runs.py`, `scheduler.py`, `health.py`, `notify.py` | Protokoll, Zeitsteuerung, Gesundheit, Webhook |
 | `admin.py`, `keys.py`, `transfer.py`, `web/` | Formulare, Schlüsselverwaltung, Export/Import, Oberfläche |
-| `health.py`, `kuma.py` | Gesundheitsprüfung, Uptime-Kuma-Push |
+| `health.py`, `kuma.py` | Gesundheitsprüfung, Kennzahlen, Uptime-Kuma-Push |
+| `backup.py` | tägliche verschlüsselte Sicherung, `netmover backup`/`restore` |
 | `docs/` | Anleitung und Bilder; wird als Hilfe-Seite mit ausgeliefert |
 
 Die gesamte Mover-Logik ist mit dem `FakeMountBackend` ohne root testbar. SFTP
@@ -443,6 +452,17 @@ NETMOVER_DATA_DIR=$PWD/data .venv/bin/alembic revision --autogenerate -m "…"
 ```
 
 Veröffentlichte Migrationen (ab v0.1.0) werden nie mehr geändert, nur ergänzt.
+`tests/test_migrations.py` stuft **jede** Migration automatisch auf einer
+Datenbank mit verknüpften Daten hoch und wieder herunter – eine neue Migration ist
+damit ohne weiteres Zutun abgedeckt; ergänzt sie Spalten mit Daten, gehört ein
+eigener Test dazu.
+
+### CI
+
+`.gitea/workflows/ci.yml` führt bei jedem Push und Pull Request ruff, mypy,
+shellcheck und alle Tests aus (Python 3.12 und 3.13). Voraussetzung: Actions sind
+im Repository aktiviert und ein `act_runner` mit dem Label `ubuntu-latest` ist
+registriert.
 
 ### Arbeitsweise
 
@@ -450,7 +470,7 @@ Veröffentlichte Migrationen (ab v0.1.0) werden nie mehr geändert, nur ergänzt
   (`feat:`, `fix:`, `docs:`, `test:`, `chore:` …).
 - Jede nutzerrelevante Änderung kommt unter `[Unreleased]` in
   [CHANGELOG.md](CHANGELOG.md). Bei einem Release:
-  1. Den Abschnitt `[Unreleased]` mit Versionsnummer versehen.
+  1. CI grün? Dann den Abschnitt `[Unreleased]` mit Versionsnummer versehen.
   2. Die Version in `src/netmover/__init__.py` anheben.
   3. Einen Tag `vX.Y.Z` setzen.
 - Arbeitszeit und Entscheidungen stehen in [DEVLOG.md](DEVLOG.md).

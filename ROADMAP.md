@@ -10,10 +10,19 @@ Legende: ✅ erledigt · 🔨 in Arbeit · 📋 geplant · 💡 Idee (noch nicht
 
 | Status | Thema | Warum |
 |---|---|---|
-| 📋 | **CI in Gitea** (Actions): Tests, ruff, mypy, shellcheck bei jedem Push | Fehler fallen vor dem Update auf, nicht auf dem Server |
-| 📋 | **Migrationstest-Pflicht**: jede neue Migration mit Test auf befüllter Datenbank | Lehre aus dem gescheiterten Update auf 0.2.0 |
-| 📋 | **Reverse Proxy mit TLS** auf der Ziel-VM (Caddy), danach Bindung an `127.0.0.1` | Anmeldung nicht unverschlüsselt im LAN |
+| 📋 | **SSH-Ausfälle bei Paperless klären**, Anbindungen auf SSH-Schlüssel umstellen | 18 kurze Ausfälle seit 11.10. („No existing session“, „protocol banner“) |
 | 📋 | **Statusseite schneller bei hängenden Mounts**: Füllstand zwischenspeichern | Heute bis zu 2 s Wartezeit, wenn ein NFS-Server weg ist |
+| 📋 | **Benachrichtigung bei Quarantäne** einer Datei | Unbeaufsichtigter Betrieb; heute über Kuma (`metrics.quarantined_24h`) sichtbar |
+| 📋 | **Kompatibilitätszusage für 1.0**: Einstellungen, Export-Format, Update aus jeder 0.x | Danach keine brechenden Änderungen ohne 2.0 |
+
+### Weg zu 1.0
+
+0.10.0 Sicherung + CI → 0.11.0 restliche Punkte oben → ein bis zwei Wochen ruhiger
+Betrieb → 1.0.0 ohne neue Funktionen.
+
+**Entschieden:** Kein TLS im internen Netz – HTTP auf Port 8080 ist eine bewusste
+Entscheidung (README, „Sicherheit“). Der Reverse Proxy bleibt dokumentiert für
+nicht vertrauenswürdige Netze.
 
 ## Ideen
 
@@ -22,12 +31,12 @@ Legende: ✅ erledigt · 🔨 in Arbeit · 📋 geplant · 💡 Idee (noch nicht
 | 💡 | **Eine Regel, mehrere Ziele** je Quell-Unterordner | Heute: eine Regel pro Unterordner |
 | 💡 | Metriken für Prometheus (`/metrics`) | Ergänzt `/healthz`, z. B. Dateien pro Tag |
 | 💡 | Deinstallationsskript | Gegenstück zu `install.sh` |
-| 💡 | Benachrichtigung bei Quarantäne einer Datei | Heute nur im Protokoll sichtbar |
 
 ## Erledigt
 
 | Version | Thema |
 |---|---|
+| 0.10.0 | Tägliche verschlüsselte Sicherung + `netmover restore`; Kennzahlen für Kuma; CI in Gitea; Migrationstest-Pflicht |
 | 0.9.0 | Regeln kopieren (Kopie zunächst deaktiviert) |
 | 0.8.0 | Anbindungen kopieren inklusive Zugangsdaten |
 | 0.7.0 | Archiv je Regel: Kopie ins Ziel und ins Archiv, Quelle erst danach löschen |

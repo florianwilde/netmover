@@ -26,9 +26,20 @@ MAX_MESSAGE = 250
 Getter = Callable[..., Any]
 
 
-def push_url(url: str, health: Health) -> str:
+def ok_message(metrics: dict[str, object] | None) -> str:
+    """Kurzer Text für die Kuma-Ansicht, z. B. „OK · 24 h: 12 Dateien“."""
+    if not metrics:
+        return "OK"
+    parts = [f"24 h: {metrics.get('files_24h', 0)} Dateien"]
+    failed = metrics.get("failed_24h") or 0
+    if failed:
+        parts.append(f"{failed} Fehler")
+    return "OK · " + ", ".join(parts)
+
+
+def push_url(url: str, health: Health, metrics: dict[str, object] | None = None) -> str:
     """Push-URL mit aktuellem Zustand (vorhandene Parameter werden ersetzt)."""
-    msg = "OK" if health.ok else "; ".join(health.problems)
+    msg = ok_message(metrics) if health.ok else "; ".join(health.problems)
     if len(msg) > MAX_MESSAGE:
         msg = msg[: MAX_MESSAGE - 1] + "…"
     target = httpx.URL(url)
@@ -37,11 +48,16 @@ def push_url(url: str, health: Health) -> str:
     return str(target)
 
 
-def push(url: str, health: Health, getter: Getter | None = None) -> bool:
+def push(
+    url: str,
+    health: Health,
+    getter: Getter | None = None,
+    metrics: dict[str, object] | None = None,
+) -> bool:
     """Meldet den Zustand an Kuma. Fehler werden protokolliert, nie weitergereicht –
     die URL nicht, weil sie das Token enthält."""
     try:
-        resp = (getter or httpx.get)(push_url(url, health), timeout=10)
+        resp = (getter or httpx.get)(push_url(url, health, metrics), timeout=10)
         resp.raise_for_status()
     except Exception as exc:
         event(log, "kuma.push_failed", level=30, error=type(exc).__name__)

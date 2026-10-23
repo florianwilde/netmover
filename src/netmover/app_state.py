@@ -7,21 +7,25 @@ Ende: Scheduler stoppen, Mounts **nicht** aushängen (andere könnten sie nutzen
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 
 from netmover import kuma
+from netmover.backup import STALE_AFTER, BackupError, BackupService, load_state
 from netmover.config import Settings
 from netmover.crypto import SecretBox, load_or_create_key
-from netmover.db import make_engine, make_session_factory, upgrade
-from netmover.health import Health, check_health
+from netmover.db import make_engine, make_session_factory, session_scope, upgrade
+from netmover.health import Health, backup_check, check_health
+from netmover.health import metrics as health_metrics
 from netmover.logging_setup import event, get_logger
-from netmover.models import utcnow
+from netmover.models import Mount, utcnow
 from netmover.mounting.backend import MountBackend
 from netmover.mounting.fake import FakeMountBackend
 from netmover.mounting.linux import LinuxMountBackend
 from netmover.mounting.manager import MountManager, RestoreResult
+from netmover.mover.destinations import Destination
 from netmover.mover.runner import RuleRunner
-from netmover.notify import Notifier
+from netmover.notify import Notification, Notifier
 from netmover.runs import RunService
 from netmover.scheduler import RuleScheduler
 from netmover.settings_store import load_settings
@@ -60,11 +64,19 @@ class NetMover:
         )
         self.runner = RuleRunner(self.session_factory, self.mounts)
         self.runs = RunService(self.session_factory, self.runner, self.notifier)
+        self.backups = BackupService(
+            settings,
+            self.session_factory,
+            self.backup_destination,
+            self.secrets,
+            notify=lambda kind, title, msg: self.notifier.send(Notification(kind, title, msg)),
+        )
         self.scheduler = RuleScheduler(
             self.session_factory,
             self.runs,
             retry_mounts=self.mounts.retry_pending,
             push_health=self.push_health,
+            backup_tick=self.backups.tick,
         )
         self.started_at: datetime = utcnow()
         self.restore_results: list[RestoreResult] = []
@@ -85,13 +97,35 @@ class NetMover:
         """Scheduler-Job (jede Minute): Zustand an Uptime Kuma melden, falls eingerichtet."""
         url = load_settings(self.session_factory).kuma_push_url
         if url:
-            kuma.push(url, self.health())
+            kuma.push(url, self.health(), metrics=health_metrics(self.session_factory))
+
+    def backup_destination(self, mount_id: int, path: str) -> Callable[[], Destination]:
+        """Ziel der Datensicherung – dieselbe Prüfung wie für Regelziele."""
+        with session_scope(self.session_factory) as s:
+            m = s.get(Mount, mount_id)
+            if m is None:
+                raise BackupError("Die Anbindung für die Sicherung existiert nicht mehr")
+            mtype, name = m.type, m.name
+        mp = self.mounts.check_alive(mount_id)
+        return self.runner.destination_factory("backup_path", mount_id, mtype, name, path, mp, None)
 
     def health(self) -> Health:
-        return check_health(
+        cfg = load_settings(self.session_factory)
+        health = check_health(
             self.session_factory,
             scheduler_running=self.scheduler.running,
             last_heartbeat=self.scheduler.last_heartbeat,
             service_started=self.started_at,
-            maintenance=load_settings(self.session_factory).maintenance,
+            maintenance=cfg.maintenance,
         )
+        st = load_state(self.session_factory)
+        health.add(
+            backup_check(
+                enabled=cfg.backup_enabled and bool(cfg.backup_mount_id),
+                last_success=st.last_success,
+                last_error=st.last_error,
+                stale_after=STALE_AFTER,
+                service_started=self.started_at,
+            )
+        )
+        return health

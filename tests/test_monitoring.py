@@ -216,3 +216,47 @@ def test_navigation_groups_health_and_help_links(client: TestClient, state: Any)
 def test_logged_out_pages_have_no_menu(raw_client: TestClient) -> None:
     html = raw_client.get("/setup").text
     assert 'id="sidebar"' not in html
+
+
+# -- Kennzahlen (0.10.0) ------------------------------------------------------------------------
+
+
+def test_metrics_in_healthz_and_rule_endpoint(client: TestClient, state: Any) -> None:
+    from netmover.models import FileFailure, ItemStatus, Run, RunItem, RunStatus
+
+    mid = _add_mount(state, "NAS", "nas", MountState.MOUNTED)
+    now = utcnow()
+    with session_scope(state.session_factory) as s:
+        a = Rule(name="A", src_mount_id=mid, dst_path="/tmp", last_success_at=now)
+        b = Rule(name="B", src_mount_id=mid, dst_path="/tmp", last_success_at=now)
+        s.add_all([a, b])
+        s.flush()
+
+        def run(rule: Rule, ago: timedelta, **kw: Any) -> Run:
+            r = Run(rule_id=rule.id, started_at=now - ago, finished_at=now - ago, **kw)
+            s.add(r)
+            s.flush()
+            return r
+
+        run(a, timedelta(hours=1), status=RunStatus.OK, moved=3)
+        q = run(a, timedelta(hours=2), status=RunStatus.PARTIAL, moved=1, failed=2)
+        s.add(RunItem(run_id=q.id, src="x.pdf", status=ItemStatus.QUARANTINED))
+        run(a, timedelta(hours=3), status=RunStatus.OK, moved=50, dry_run=True)  # Probelauf
+        run(a, timedelta(hours=30), status=RunStatus.OK, moved=7)  # älter als 24 h
+        run(b, timedelta(hours=4), status=RunStatus.ERROR)
+        s.add(FileFailure(rule_id=b.id, src_relpath="y.pdf", size=1, mtime_ns=1, attempts=1))
+        aid, bid = a.id, b.id
+
+    m = client.get("/healthz").json()["metrics"]
+    assert (m["files_24h"], m["failed_24h"], m["quarantined_24h"]) == (4, 2, 1)
+    assert m["errors_24h"] == 1 and m["pending_failures"] == 1
+    assert m["last_moved_at"].startswith(str((now - timedelta(hours=1)).date()))
+    ra = client.get(f"/healthz/rule/{aid}").json()["metrics"]
+    assert ra["files_24h"] == 4 and ra["quarantined_24h"] == 1
+    rb = client.get(f"/healthz/rule/{bid}").json()["metrics"]
+    assert rb["files_24h"] == 0 and rb["errors_24h"] == 1 and rb["last_moved_at"] is None
+
+
+def test_push_ok_message_shows_files() -> None:
+    url = push_url("https://k/api/push/x", _health(True), {"files_24h": 12, "failed_24h": 1})
+    assert httpx.URL(url).params["msg"] == "OK · 24 h: 12 Dateien, 1 Fehler"

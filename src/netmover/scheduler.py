@@ -6,7 +6,8 @@
 * Die Läufe selbst sind blockierend und laufen in einem eigenen Thread-Pool,
   nie im Event-Loop. Überlappung regelt der Lock im :class:`RuleRunner`, der den
   übersprungenen Termin auch protokolliert – deshalb ``max_instances`` > 1.
-* Herzschlag-Job für ``/healthz`` und stündliches Aufräumen der Protokolle.
+* Herzschlag-Job für ``/healthz``, stündliches Aufräumen der Protokolle und alle
+  5 Minuten die Frage, ob die tägliche Datensicherung fällig ist.
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ HEARTBEAT_SECONDS = 30
 CLEANUP_SECONDS = 3600
 RETRY_SECONDS = 60
 PUSH_SECONDS = 60
+BACKUP_CHECK_SECONDS = 300
 
 
 def _job_id(rule_id: int) -> str:
@@ -48,6 +50,7 @@ class RuleScheduler:
         *,
         retry_mounts: Callable[[], object] | None = None,
         push_health: Callable[[], object] | None = None,
+        backup_tick: Callable[[], object] | None = None,
         rng: random.Random | None = None,
         workers: int = 8,
     ) -> None:
@@ -55,6 +58,7 @@ class RuleScheduler:
         self.service = service
         self._retry_mounts = retry_mounts
         self._push_health = push_health
+        self._backup_tick = backup_tick
         self._rng = rng or random.Random()  # noqa: S311 – nur Startversatz
         self._executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="nm-run")
         self.scheduler = AsyncIOScheduler(
@@ -84,6 +88,14 @@ class RuleScheduler:
         if self._push_health is not None:
             self.scheduler.add_job(
                 self._push, IntervalTrigger(seconds=PUSH_SECONDS), id="kuma-push"
+            )
+        if self._backup_tick is not None:
+            self.scheduler.add_job(
+                self._backup,
+                IntervalTrigger(
+                    seconds=BACKUP_CHECK_SECONDS, start_date=utcnow() + timedelta(minutes=2)
+                ),
+                id="backup",
             )
         self.sync()
         event(log, "scheduler.started", rules=len(self._intervals))
@@ -165,6 +177,11 @@ class RuleScheduler:
         if self._push_health is not None:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(self._executor, self._push_health)
+
+    async def _backup(self) -> None:
+        if self._backup_tick is not None:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(self._executor, self._backup_tick)
 
     async def _cleanup(self) -> None:
         loop = asyncio.get_running_loop()

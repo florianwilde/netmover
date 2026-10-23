@@ -109,6 +109,13 @@ class Destination(ABC):
     def close(self) -> None:  # noqa: B027 – absichtlich optional
         pass
 
+    @abstractmethod
+    def list_names(self) -> list[str]:
+        """Dateinamen direkt im Zielordner (für das Ausdünnen von Sicherungen)."""
+
+    def remove(self, rel: str) -> None:
+        self._remove(rel)
+
     # -- Primitive der Unterklassen -------------------------------------------------
 
     @abstractmethod
@@ -234,6 +241,9 @@ class LocalDestination(Destination):
 
     def exists(self, rel: str) -> bool:
         return os.path.lexists(self._p(rel))
+
+    def list_names(self) -> list[str]:
+        return [e.name for e in os.scandir(self.root) if e.is_file(follow_symlinks=False)]
 
     def free_bytes(self) -> int | None:
         st = os.statvfs(self.root)
@@ -420,6 +430,13 @@ class SftpDestination(Destination):
         except FileNotFoundError:
             return False
         return True
+
+    def list_names(self) -> list[str]:
+        return [
+            a.filename
+            for a in self.client.listdir_attr(self.base)
+            if a.st_mode is not None and stat.S_ISREG(a.st_mode)
+        ]
 
     def free_bytes(self) -> int | None:
         usage = self.session.statvfs(self.base)

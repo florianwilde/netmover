@@ -8,6 +8,36 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 
 ## [Unreleased]
 
+## [0.10.0] – 2026-10-23
+
+### Hinzugefügt
+- **Tägliche Datensicherung** (*System → Sicherung*): Datenbank, `secret.key`,
+  `session.key` und `netmover.env` als mit Passphrase verschlüsselte Datei
+  (scrypt + Fernet) auf eine Anbindung (SMB, NFS oder SFTP). Momentaufnahme über die
+  SQLite-Backup-API mit Integritätsprüfung; die Datei wird vor dem Hochladen
+  probeweise geöffnet und atomar geschrieben; ältere NetMover-Sicherungen über die
+  eingestellte Anzahl hinaus werden gelöscht, andere Dateien nie. Verpasste Termine
+  werden nachgeholt, nach einem Fehler stündlich neuer Versuch, erster Fehlschlag
+  per E-Mail/Webhook. Knopf „Jetzt sichern“.
+- `netmover restore <datei>`: spielt eine Sicherung ein (nur bei gestopptem Dienst),
+  legt die bisherigen Dateien vorher nach `vor-wiederherstellung-<zeit>/` und
+  migriert die Datenbank. `netmover backup <ziel>` sichert von Hand in eine Datei.
+- Befehl `netmover` im Pfad (`/usr/local/sbin/netmover`, lädt `netmover.env`).
+- **Kennzahlen für Uptime Kuma**: `/healthz` und `/healthz/rule/<id>` liefern unter
+  `metrics` Dateien, Fehler, Quarantäne und abgebrochene Läufe der letzten 24 Stunden
+  sowie die letzte verschobene Datei – für Kuma-Monitore vom Typ „JSON-Abfrage“.
+  Der Push meldet z. B. „OK · 24 h: 12 Dateien“.
+- `/healthz/backup`: eigener Monitor; eine seit zwei Tagen überfällige Sicherung gilt
+  als Problem (Statusampel, `/healthz`, Push).
+- **CI in Gitea** (`.gitea/workflows/ci.yml`): ruff, mypy, shellcheck und Tests auf
+  Python 3.12 und 3.13 bei jedem Push.
+- Test-Pflicht für Migrationen: jede Migration wird automatisch auf einer befüllten
+  Datenbank hoch- und heruntergestuft.
+
+### Geändert
+- README: HTTP im internen Netz als bewusste Entscheidung dokumentiert; TLS über
+  Reverse Proxy bleibt der Weg für nicht vertrauenswürdige Netze.
+
 ## [0.9.0] – 2026-10-15
 
 ### Hinzugefügt
@@ -277,7 +307,8 @@ Erste Version.
 - Löschen von Zugangsdaten, die noch von einem Mount benutzt werden, trennt den
   Mount nicht mehr stillschweigend ab, sondern wird von der Datenbank abgelehnt.
 
-[Unreleased]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.9.0...HEAD
+[Unreleased]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.10.0...HEAD
+[0.10.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.9.0...v0.10.0
 [0.9.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.8.0...v0.9.0
 [0.8.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.7.0...v0.8.0
 [0.7.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.6.0...v0.7.0

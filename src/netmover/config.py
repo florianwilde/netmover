@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     data_dir: Path = Path("/var/lib/netmover")
     run_dir: Path = Path("/run/netmover")
     mount_base: Path = Path("/mnt/netmover")
+    # Umgebungsdatei – wird mitgesichert und wiederhergestellt
+    config_file: Path = Path("/etc/netmover/netmover.env")
 
     host: str = "127.0.0.1"
     port: int = Field(default=8080, ge=1, le=65535)

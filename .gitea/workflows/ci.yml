@@ -1,0 +1,37 @@
+# Prüfungen bei jedem Push und Pull Request (Gitea Actions, act_runner).
+# Gleiche Befehle wie lokal vor einem Release – siehe README, „Entwicklung“.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  pruefen:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.12 = Mindestversion, 3.13 = Debian 13 (Zielsystem)
+        python: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Abhängigkeiten
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: ruff
+        run: |
+          ruff check .
+          ruff format --check .
+      - name: mypy
+        run: mypy src
+      - name: shellcheck
+        run: shellcheck deploy/*.sh
+      - name: pytest (inkl. Migrationen auf befüllter Datenbank)
+        run: pytest -q

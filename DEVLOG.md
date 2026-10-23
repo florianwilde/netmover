@@ -23,9 +23,38 @@ Zeiten in Ortszeit (Europe/Berlin).
 | 2026-10-12 | 00:14 | 00:34 | 0:20  | –       | Archiv je Regel (0.7.0)                |
 | 2026-10-12 | 00:46 | 00:55 | 0:09  | –       | Anbindungen kopieren (0.8.0)           |
 | 2026-10-15 | 09:17 | 09:26 | 0:09  | –       | Regeln kopieren (0.9.0)                |
-| **Summe**  |       |       | **4:07** |      |                                        |
+| 2026-10-23 | 13:42 | 14:10 | 0:28  | –       | Sicherung, Kuma-Kennzahlen, CI (0.10.0) |
+| **Summe**  |       |       | **4:35** |      |                                        |
 
 ---
+
+## 2026-10-23 · 13:42–14:10 · Sicherung, Kuma-Kennzahlen, CI (0.10.0)
+
+**Bestandsaufnahme Live-Server** – 0.9.0 seit 15.10. ohne Neustart, 287 Dateien
+verschoben, keine Datei gescheitert oder in Quarantäne, Archivkopien vollständig
+(159 + 122). 18 kurze Pausen, alle wegen SSH zu den Paperless-Servern
+(„No existing session“, „protocol banner“, Timeout) – automatisches Pausieren und
+Fortsetzen hat jedes Mal gegriffen. Ursache liegt vermutlich auf den Paperless-Hosts
+→ Roadmap 0.11.0.
+
+**Erledigt** – `backup.py` (Momentaufnahme per SQLite-Backup-API, tar.gz,
+scrypt+Fernet, Probe-Öffnen vor dem Upload, Upload über `Destination.commit`,
+Ausdünnen), Seite „Sicherung“, `/healthz/backup`, `netmover backup`/`restore`,
+Wrapper `/usr/local/sbin/netmover`; Kennzahlen unter `metrics` in `/healthz`;
+Gitea-CI; generischer Migrationstest. 381 Tests. Gegenproben: Ausdünnen ohne
+Namensfilter und Sicherung ohne Verschlüsselung schlagen jeweils an (2 Tests).
+
+**Entscheidungen**
+- *Passphrase verschlüsselt in der DB*: sonst bräuchte die tägliche Sicherung eine
+  Eingabe. Auf dem NAS schützt die Passphrase; auf dem Server ist ohnehin alles da.
+- *Termin per „fällig?“-Prüfung alle 5 min* statt Cron-Job: holt verpasste Termine
+  nach, braucht kein Umplanen bei Änderungen und regelt den stündlichen Neuversuch.
+- *Ziel über dieselbe Fabrik wie Regelziele* (`destination_factory`): gleiche
+  Mount-Prüfung, `.part`-Logik und SFTP-Unterstützung, kein zweiter Schreibweg.
+- *Ausdünnen nur nach Namensschema* – fremde Dateien im Ordner bleiben unangetastet.
+- *Kein TLS* im internen Netz (Nutzerentscheidung), im README begründet.
+- *Kuma*: Endpunkte gab es seit 0.3.0; neu sind auslesbare Kennzahlen für
+  „JSON-Abfrage“-Monitore, z. B. Alarm bei `metrics.quarantined_24h != 0`.
 
 ## 2026-10-15 · 09:17–09:26 · Regeln kopieren (0.9.0)
 

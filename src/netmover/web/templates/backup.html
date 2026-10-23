@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% from "macros.html" import field, select, check, csrf_field %}
+{% block title %}Sicherung{% endblock %}
+{% block content %}
+<h1>Sicherung</h1>
+<p class="muted">Täglich Datenbank und Schlüssel – also alle Anbindungen, Regeln, Zugangsdaten und Einstellungen –
+  verschlüsselt auf eine Anbindung, z. B. eine eigene Freigabe auf dem NAS.</p>
+
+<div class="card stack">
+  <h2>Zustand</h2>
+  {% if check %}<p class="msg {{ 'ok' if check.ok else 'error' }}">{{ check.message }}</p>{% endif %}
+  <table class="small"><tbody>
+    <tr><td>Letzte erfolgreiche</td><td>{{ st.last_success|localdt if st.last_success else '–' }}</td></tr>
+    <tr><td>Datei</td><td class="mono">{{ st.last_file or '–' }}{% if st.last_size %} ({{ st.last_size|bytes }}){% endif %}</td></tr>
+    <tr><td>Letzter Versuch</td><td>{{ st.last_attempt|localdt if st.last_attempt else '–' }}</td></tr>
+    {% if st.last_error %}<tr><td>Letzter Fehler</td><td>{{ st.last_error }}{% if st.failures > 1 %} ({{ st.failures }}× in Folge){% endif %}</td></tr>{% endif %}
+  </tbody></table>
+  <form class="row" method="post" action="/backup/run">
+    {{ csrf_field(csrf) }}
+    <button {% if running or not cfg.backup_mount_id or not cfg.backup_passphrase_enc %}disabled{% endif %}>{{ 'Sicherung läuft …' if running else 'Jetzt sichern' }}</button>
+    <span class="hint">Kuma-Monitor: <code>{{ monitor_url }}</code></span>
+  </form>
+</div>
+
+<h2>Einstellungen <a class="legend-help" href="/help#sicherung" title="Hilfe">?</a></h2>
+<form class="form card stack" method="post" action="/backup">
+  {{ csrf_field(csrf) }}
+  <div class="fields">
+    {{ check('backup_enabled', 'Tägliche Sicherung einschalten', cfg.backup_enabled, wide=true) }}
+    {{ select('backup_mount_id', 'Ziel-Anbindung', [(0, '– bitte wählen –')] + mounts, cfg.backup_mount_id, errors=errors, hint='SMB, NFS oder SFTP – am besten eine eigene Freigabe, getrennt von Scans und Archiv.') }}
+    {{ field('backup_path', 'Unterordner', cfg.backup_path, errors=errors, placeholder='z. B. netmover', hint='Wird angelegt, falls nötig. Leer = direkt in der Anbindung.') }}
+    {{ field('backup_time', 'Uhrzeit', cfg.backup_time, type='time', errors=errors, hint='Ortszeit des Servers. Verpasste Sicherungen werden nachgeholt, nach einem Fehler stündlich neuer Versuch.') }}
+    {{ field('backup_keep', 'Anzahl behalten', cfg.backup_keep, type='number', errors=errors, attrs='min="1" max="365"', hint='Ältere NetMover-Sicherungen im Ordner werden gelöscht – andere Dateien nie.') }}
+    <div class="field{{ ' has-error' if errors.get('passphrase') }}"><label for="f-passphrase">Passphrase</label>
+      <input id="f-passphrase" type="password" name="passphrase" autocomplete="new-password" minlength="12" placeholder="{{ '••••••' if cfg.backup_passphrase_enc }}">
+      {% if errors.get('passphrase') %}<span class="error">{{ errors['passphrase'] }}</span>{% endif %}
+      <span class="hint">{{ 'Leer lassen = unverändert. ' if cfg.backup_passphrase_enc }}Mindestens 12 Zeichen.</span></div>
+    <div class="field"><label for="f-passphrase2">Passphrase wiederholen</label>
+      <input id="f-passphrase2" type="password" name="passphrase_confirm" autocomplete="new-password"></div>
+  </div>
+  <p class="msg warn small">Die Passphrase gehört in deinen Passwortmanager. Fällt der Server aus, ist sie der einzige Weg an die Sicherung –
+    NetMover kann sie dann nicht mehr verraten. Eine neue Passphrase gilt für künftige Sicherungen; ältere Dateien brauchen weiter die alte.</p>
+  <div class="row"><button class="primary">Speichern</button></div>
+</form>
+
+<h2>Wiederherstellen</h2>
+<div class="card stack small">
+  <p>Auf dem (neu installierten) Server, gleiche oder neuere NetMover-Version:</p>
+  <pre class="mono">systemctl stop netmover
+netmover restore /pfad/zur/netmover-….nmbak
+systemctl start netmover</pre>
+  <p class="muted">Die bisherigen Dateien bleiben in <code>/var/lib/netmover/vor-wiederherstellung-…</code> erhalten.
+    Ausführlich: <a href="/help#sicherung">Hilfe → Sicherung</a>.</p>
+</div>
+{% endblock %}

@@ -19,11 +19,21 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from netmover.db import session_scope
-from netmover.models import Mount, MountState, Rule, utcnow
+from netmover.models import (
+    FileFailure,
+    ItemStatus,
+    Mount,
+    MountState,
+    Rule,
+    Run,
+    RunItem,
+    RunStatus,
+    utcnow,
+)
 
 STALE_FACTOR = 3
 FAILURES_ALERT = 3
@@ -32,7 +42,7 @@ HEARTBEAT_MAX_AGE = timedelta(minutes=3)
 
 @dataclass
 class Check:
-    kind: str  # "scheduler" | "mount" | "rule"
+    kind: str  # "scheduler" | "mount" | "rule" | "backup"
     name: str
     ok: bool
     message: str
@@ -146,3 +156,94 @@ def check_health(
                 health.stale_rules.add(r.id)
             health.add(check)
     return health
+
+
+def backup_check(
+    *,
+    enabled: bool,
+    last_success: datetime | None,
+    last_error: str,
+    stale_after: timedelta,
+    service_started: datetime,
+    now: datetime | None = None,
+) -> Check:
+    """Datensicherung: überfällig, wenn länger als ``stale_after`` keine gelungen ist
+    (Bezug wie bei Regeln: spätester von letztem Erfolg und Dienststart)."""
+    now = now or utcnow()
+
+    def mk(ok: bool, message: str) -> Check:
+        return Check("backup", "Sicherung", ok, message)
+
+    if not enabled:
+        return mk(True, "Sicherung ausgeschaltet")
+    reference = max(d for d in (last_success, service_started) if d is not None)
+    if now - reference > stale_after:
+        when = "noch nie" if last_success is None else f"seit {last_success:%Y-%m-%d %H:%M} UTC"
+        detail = f": {last_error}" if last_error else ""
+        return mk(False, f"Sicherung überfällig – keine erfolgreiche {when}{detail}")
+    if last_success is None:
+        return mk(True, "Sicherung eingerichtet, noch keine gelaufen")
+    note = f" (letzter Versuch fehlgeschlagen: {last_error})" if last_error else ""
+    return mk(True, f"Letzte Sicherung {last_success:%Y-%m-%d %H:%M} UTC{note}")
+
+
+METRICS_WINDOW = timedelta(hours=24)
+COUNTERS = ("files_24h", "failed_24h", "quarantined_24h", "errors_24h", "pending_failures")
+
+
+def metrics(
+    session_factory: sessionmaker[Session], now: datetime | None = None
+) -> dict[str, object]:
+    """Kennzahlen für Uptime Kuma („HTTP(s) – JSON-Abfrage“) und andere Monitore:
+    gesamt und je Regel (Schlüssel = Regel-ID als Text). Probeläufe zählen nicht."""
+    since = (now or utcnow()) - METRICS_WINDOW
+    counts: dict[int, dict[str, int]] = {}
+    last_moved: dict[int, datetime] = {}
+
+    def entry(rule_id: int) -> dict[str, int]:
+        return counts.setdefault(rule_id, dict.fromkeys(COUNTERS, 0))
+
+    with session_scope(session_factory) as s:
+        for (rid,) in s.execute(select(Rule.id)):
+            entry(rid)
+        real = (Run.dry_run.is_(False), Run.started_at >= since)
+        for rid, moved, failed, errors in s.execute(
+            select(
+                Run.rule_id,
+                func.coalesce(func.sum(Run.moved), 0),
+                func.coalesce(func.sum(Run.failed), 0),
+                func.count().filter(Run.status == RunStatus.ERROR),
+            )
+            .where(*real)
+            .group_by(Run.rule_id)
+        ):
+            entry(rid).update(files_24h=moved, failed_24h=failed, errors_24h=errors)
+        for rid, n in s.execute(
+            select(Run.rule_id, func.count())
+            .join(RunItem, RunItem.run_id == Run.id)
+            .where(*real, RunItem.status == ItemStatus.QUARANTINED)
+            .group_by(Run.rule_id)
+        ):
+            entry(rid)["quarantined_24h"] = n
+        for rid, n in s.execute(
+            select(FileFailure.rule_id, func.count()).group_by(FileFailure.rule_id)
+        ):
+            entry(rid)["pending_failures"] = n
+        for rid, latest in s.execute(
+            select(Run.rule_id, func.max(Run.finished_at))
+            .where(Run.dry_run.is_(False), Run.moved > 0)
+            .group_by(Run.rule_id)
+        ):
+            if latest is not None:
+                last_moved[rid] = latest
+
+    def iso(d: datetime | None) -> str | None:
+        return d.isoformat() if d else None
+
+    total: dict[str, object] = {k: sum(c[k] for c in counts.values()) for k in COUNTERS}
+    total["last_moved_at"] = iso(max(last_moved.values(), default=None))
+    total["rules"] = {
+        str(rid): {**c, "last_moved_at": iso(last_moved.get(rid))}
+        for rid, c in sorted(counts.items())
+    }
+    return total

@@ -50,6 +50,9 @@ from netmover.admin import (
     save_rule,
 )
 from netmover.app_state import NetMover
+from netmover.backup import load_state as load_backup_state
+from netmover.backup import parse_time as parse_backup_time
+from netmover.backup import passphrase_problem
 from netmover.config import Settings, get_settings
 from netmover.credentials import (
     create_password,
@@ -62,6 +65,7 @@ from netmover.credentials import (
     update_password,
 )
 from netmover.db import session_scope
+from netmover.health import metrics as health_metrics
 from netmover.kuma import push as kuma_push
 from netmover.logging_setup import event, get_logger
 from netmover.mail import SECURITY_MODES, MailConfigError, parse_recipients, valid_address
@@ -85,6 +89,7 @@ from netmover.mounting.report import CheckReport
 from netmover.notify import Notification
 from netmover.settings_store import AppSettings, NotifyMode, load_settings, save_settings
 from netmover.transfer import apply_imported_settings, export_config, import_config
+from netmover.validation import ValidationError, safe_relpath
 from netmover.web import auth
 
 log = get_logger(__name__)
@@ -186,6 +191,7 @@ HELP_ANCHORS = {
     "rules": "regeln",
     "log": "protokoll",
     "settings": "einstellungen",
+    "backup": "sicherung",
 }
 
 
@@ -199,6 +205,7 @@ class NavState:
     rules: int
     rules_active: int
     maintenance: bool = False
+    backup_ok: bool = True
 
 
 def _nav_state(request: Request) -> NavState | None:
@@ -223,6 +230,7 @@ def _nav_state(request: Request) -> NavState | None:
         rules=len(rules),
         rules_active=sum(1 for (en,) in rules if en),
         maintenance=health.maintenance,
+        backup_ok=(c := health.find("backup")) is None or c.ok,
     )
 
 
@@ -306,16 +314,20 @@ async def healthz(request: Request) -> JSONResponse:
             "last_heartbeat": beat.isoformat() if beat else None,
         },
         "checks": [c.as_dict() for c in health.checks],
+        "metrics": await run_in_threadpool(health_metrics, state.session_factory),
     }
     return JSONResponse(body, status_code=200 if health.ok else 503)
 
 
-async def _single_check(request: Request, kind: str, **key: Any) -> JSONResponse:
+async def _single_check(
+    request: Request, kind: str, extra: dict[str, Any] | None = None, **key: Any
+) -> JSONResponse:
     health = await run_in_threadpool(nm(request).health)
     check = health.find(kind, **key)
     if check is None:
         return JSONResponse({"status": "unknown", "message": "nicht gefunden"}, status_code=404)
     body = {"status": "ok" if check.ok else "error", "name": check.name, "message": check.message}
+    body.update(extra or {})
     return JSONResponse(body, status_code=200 if check.ok else 503)
 
 
@@ -327,8 +339,24 @@ async def healthz_mount(request: Request, slug: str) -> JSONResponse:
 
 @public.get("/healthz/rule/{rule_id}")
 async def healthz_rule(request: Request, rule_id: int) -> JSONResponse:
-    """Eigener Kuma-Monitor pro Regel."""
-    return await _single_check(request, "rule", id=rule_id)
+    """Eigener Kuma-Monitor pro Regel – mit Kennzahlen der letzten 24 Stunden."""
+    all_metrics = await run_in_threadpool(health_metrics, nm(request).session_factory)
+    rules = all_metrics["rules"]
+    rule_metrics = rules.get(str(rule_id)) if isinstance(rules, dict) else None
+    return await _single_check(request, "rule", {"metrics": rule_metrics}, id=rule_id)
+
+
+@public.get("/healthz/backup")
+async def healthz_backup(request: Request) -> JSONResponse:
+    """Eigener Kuma-Monitor für die Datensicherung."""
+    st = await run_in_threadpool(load_backup_state, nm(request).session_factory)
+    extra = {
+        "last_success": st.last_success.isoformat() if st.last_success else None,
+        "last_file": st.last_file or None,
+        "last_size": st.last_size,
+        "failures": st.failures,
+    }
+    return await _single_check(request, "backup", extra)
 
 
 @public.get("/setup", response_class=HTMLResponse)
@@ -1128,6 +1156,7 @@ def _monitor_urls(request: Request) -> list[tuple[str, str]]:
             (f"Regel „{n}“", f"{base}/healthz/rule/{rid}")
             for rid, n in s.execute(select(Rule.id, Rule.name).order_by(Rule.name))
         ]
+    urls.append(("Sicherung", f"{base}/healthz/backup"))
     return urls
 
 
@@ -1211,6 +1240,100 @@ async def settings_save(request: Request) -> Response:
     save_settings(state.session_factory, cfg)
     flash(request, "Einstellungen gespeichert.")
     return redirect("/settings")
+
+
+# -- Datensicherung -------------------------------------------------------------------------
+
+
+def _backup_page(
+    request: Request, cfg: AppSettings, errors: dict[str, str], status_code: int = 200
+) -> Response:
+    state = nm(request)
+    with state.session_factory() as s:
+        mounts = [
+            (m.id, f"{m.name} ({m.type.value})")
+            for m in s.scalars(select(Mount).order_by(Mount.name))
+        ]
+    health = state.health()
+    return render(
+        request,
+        "backup.html",
+        status_code=status_code,
+        active="backup",
+        cfg=cfg,
+        errors=errors,
+        mounts=mounts,
+        st=load_backup_state(state.session_factory),
+        check=health.find("backup"),
+        running=state.backups.running,
+        monitor_url=f"{str(request.base_url).rstrip('/')}/healthz/backup",
+    )
+
+
+@protected.get("/backup", response_class=HTMLResponse)
+async def backup_page(request: Request) -> Response:
+    return _backup_page(request, load_settings(nm(request).session_factory), {})
+
+
+@protected.post("/backup", response_class=HTMLResponse)
+async def backup_save(request: Request) -> Response:
+    state = nm(request)
+    form = _form_dict(await request.form())
+    cfg = load_settings(state.session_factory)
+    errors: dict[str, str] = {}
+    cfg.backup_enabled = form.get("backup_enabled") == "on"
+    try:
+        cfg.backup_mount_id = int(form.get("backup_mount_id") or 0)
+    except ValueError:
+        cfg.backup_mount_id = 0
+    with state.session_factory() as s:
+        if cfg.backup_mount_id and s.get(Mount, cfg.backup_mount_id) is None:
+            errors["backup_mount_id"] = "Anbindung existiert nicht."
+    try:
+        cfg.backup_path = safe_relpath("backup_path", form.get("backup_path") or "")
+    except ValidationError as exc:
+        errors["backup_path"] = str(exc)
+    cfg.backup_time = (form.get("backup_time") or "03:30").strip()
+    try:
+        parse_backup_time(cfg.backup_time)
+    except ValueError as exc:
+        errors["backup_time"] = str(exc)
+    try:
+        cfg.backup_keep = int(form.get("backup_keep") or 14)
+        if not 1 <= cfg.backup_keep <= 365:
+            raise ValueError
+    except ValueError:
+        errors["backup_keep"] = "Zwischen 1 und 365."
+    passphrase = form.get("passphrase") or ""
+    if passphrase or form.get("passphrase_confirm"):
+        problem = passphrase_problem(passphrase, form.get("passphrase_confirm") or "")
+        if problem:
+            errors["passphrase"] = problem
+        else:
+            cfg.backup_passphrase_enc = state.secrets.encrypt(passphrase)
+    if cfg.backup_enabled and not cfg.backup_mount_id:
+        errors["backup_mount_id"] = "Für die Sicherung eine Anbindung wählen."
+    if cfg.backup_enabled and not cfg.backup_passphrase_enc and "passphrase" not in errors:
+        errors["passphrase"] = "Für die Sicherung eine Passphrase festlegen."  # noqa: S105
+    if errors:
+        return _backup_page(request, cfg, errors, status_code=400)
+    save_settings(state.session_factory, cfg)
+    flash(request, "Sicherung gespeichert.")
+    if passphrase:
+        flash(
+            request,
+            "Passphrase jetzt im Passwortmanager ablegen – ohne sie lässt sich keine "
+            "Sicherung wiederherstellen.",
+            "warn",
+        )
+    return redirect("/backup")
+
+
+@protected.post("/backup/run")
+async def backup_run(request: Request) -> Response:
+    result = await run_in_threadpool(nm(request).backups.run)
+    flash(request, result.message, "ok" if result.ok else "error")
+    return redirect("/backup")
 
 
 def auth_mask(url: str) -> str:
