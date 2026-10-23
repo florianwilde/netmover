@@ -3,6 +3,7 @@
 * ``copied_files`` (Fallstrick 11): Welche Dateiversion (Pfad, Größe, mtime) wurde
   schon übertragen? Verhindert endloses Neu-Kopieren im Kopiermodus – und im
   Verschiebemodus Duplikate, wenn die Quelle nicht gelöscht werden konnte.
+* ``target_files``: welche Dateiversion ein weiteres Ziel schon hat.
 * ``file_failures``: Fehlversuche pro Datei als Grundlage der Quarantäne.
 """
 
@@ -14,7 +15,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from netmover.db import session_scope
-from netmover.models import ArchivedFile, CopiedFile, FileFailure, utcnow
+from netmover.models import CopiedFile, FileFailure, TargetFile, utcnow
 
 CopyKey = tuple[str, int, int]  # (relpath, size, mtime_ns)
 
@@ -72,51 +73,51 @@ class Ledger:
                 s.execute(delete(CopiedFile).where(CopiedFile.id.in_(stale)))
             return len(stale)
 
-    # -- Archiv ------------------------------------------------------------------------
+    # -- weitere Ziele ------------------------------------------------------------------
 
-    def archived_keys(self, rule_id: int) -> set[CopyKey]:
+    def target_keys(self, target_id: int) -> set[CopyKey]:
         with session_scope(self.session_factory) as s:
             rows = s.execute(
-                select(ArchivedFile.src_relpath, ArchivedFile.size, ArchivedFile.mtime_ns).where(
-                    ArchivedFile.rule_id == rule_id
+                select(TargetFile.src_relpath, TargetFile.size, TargetFile.mtime_ns).where(
+                    TargetFile.target_id == target_id
                 )
             ).all()
         return {(r[0], r[1], r[2]) for r in rows}
 
-    def record_archive(
-        self, rule_id: int, relpath: str, size: int, mtime_ns: int, archive_path: str
+    def record_target(
+        self, target_id: int, relpath: str, size: int, mtime_ns: int, dst: str
     ) -> None:
         with session_scope(self.session_factory) as s:
             exists = s.scalar(
-                select(ArchivedFile.id).where(
-                    ArchivedFile.rule_id == rule_id,
-                    ArchivedFile.src_relpath == relpath,
-                    ArchivedFile.size == size,
-                    ArchivedFile.mtime_ns == mtime_ns,
+                select(TargetFile.id).where(
+                    TargetFile.target_id == target_id,
+                    TargetFile.src_relpath == relpath,
+                    TargetFile.size == size,
+                    TargetFile.mtime_ns == mtime_ns,
                 )
             )
             if exists is None:
                 s.add(
-                    ArchivedFile(
-                        rule_id=rule_id,
+                    TargetFile(
+                        target_id=target_id,
                         src_relpath=relpath,
                         size=size,
                         mtime_ns=mtime_ns,
-                        archive_path=archive_path,
+                        dst_path=dst,
                     )
                 )
 
-    def prune_archived(self, rule_id: int, present: set[str]) -> int:
+    def prune_target(self, target_id: int, present: set[str]) -> int:
         """Wie :meth:`prune_copied`: nur nach einem vollständigen Scan aufrufen."""
         with session_scope(self.session_factory) as s:
             rows = s.execute(
-                select(ArchivedFile.id, ArchivedFile.src_relpath).where(
-                    ArchivedFile.rule_id == rule_id
+                select(TargetFile.id, TargetFile.src_relpath).where(
+                    TargetFile.target_id == target_id
                 )
             ).all()
             stale = [r[0] for r in rows if r[1] not in present]
             if stale:
-                s.execute(delete(ArchivedFile).where(ArchivedFile.id.in_(stale)))
+                s.execute(delete(TargetFile).where(TargetFile.id.in_(stale)))
             return len(stale)
 
     def failures(self, rule_id: int) -> dict[str, FailureInfo]:

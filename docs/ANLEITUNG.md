@@ -8,7 +8,7 @@ Diese Anleitung erklärt die Bedienung. Installation, Updates und technische Det
 stehen im [README](../README.md).
 
 **Inhalt:** [Begriffe](#begriffe) · [Erste Anmeldung](#erste-anmeldung) ·
-[Zugangsdaten](#zugangsdaten) · [Anbindungen](#anbindungen) · [Regeln](#regeln) · [Archiv](#archiv) ·
+[Zugangsdaten](#zugangsdaten) · [Anbindungen](#anbindungen) · [Regeln](#regeln) · [Weitere Ziele](#weitere-ziele) ·
 [Probelauf](#probelauf) · [Status](#status) · [Wartungsmodus](#wartungsmodus) · [Protokoll](#protokoll) ·
 [Einstellungen](#einstellungen) · [Anmeldung](#anmeldung) · [Uptime Kuma](#uptime-kuma) ·
 [Sicherung](#sicherung) · [Beispiele](#beispiele) · [Häufige Fragen](#fragen)
@@ -177,33 +177,48 @@ Gespeicherte Zugangsdaten lassen sich nur löschen, wenn sie keine Anbindung meh
 | **Aktion** | **verschieben** (Quelle wird nach erfolgreicher Übertragung gelöscht) oder **kopieren** (Quelle bleibt; jede Dateiversion wird nur einmal kopiert). |
 | **Wenn Datei existiert** | **umbenennen** (`scan.pdf` → `scan-1.pdf`, `scan-2.pdf` …), **überspringen** oder **überschreiben**. |
 
-### Archiv {#archiv}
+### Weitere Ziele (Archiv, Buchhaltung, …) {#weitere-ziele}
 
-Optional bekommt jede Datei zusätzlich eine **Kopie ins Archiv** – z. B. Paperless als
-Ziel und ein Archivordner auf dem NAS. **Die Quelle wird erst gelöscht, wenn die Datei
-im Ziel UND im Archiv angekommen ist.**
+<span id="archiv"></span>Neben dem **Hauptziel** kann jede Regel bis zu **9 weitere
+Ziele** beliefern – z. B. eine Rechnung ins DMS (Hauptziel), in den Importordner der
+Buchhaltung und ins Archiv. **Die Quelle wird erst gelöscht, wenn alle Ziele die Datei
+haben.**
 
 | Feld | Bedeutung |
 |---|---|
-| **Archiv** | kein Archiv / eine Anbindung (SMB, NFS, SFTP) / ein lokaler Pfad |
-| **Archivordner** | Anbindung: relativer Unterordner (wird angelegt). Lokal: absoluter Pfad, muss existieren. |
-| **Ablage** | **wie in der Quelle** oder **nach Datum** – `2026/10/scan001.pdf` (Monat der Verarbeitung) |
+| **Ziel 2 … 10** | Anbindung (SMB, NFS, SFTP) oder lokaler Pfad; „– kein weiteres Ziel –“ = Platz frei. Sobald ein Platz belegt ist, erscheint der nächste. |
+| **Bezeichnung** | erscheint in Protokoll und Probelauf, z. B. „Archiv“ oder „Buchhaltung“; leer = Name der Anbindung |
+| **Ordner** | Anbindung: relativer Unterordner (wird angelegt). Lokal: absoluter Pfad, muss existieren. |
+| **Ablage** | **wie in der Quelle** oder **nach Datum** – `2026/10/scan001.pdf` (Monat der Verarbeitung). Für Ordner, die eine Software abholt (Buchhaltung), „wie in der Quelle“ wählen. |
+
+Ein Ziel entfernen: Platz auf „– kein weiteres Ziel –“ stellen und speichern. Die
+übrigen rücken nach.
 
 So läuft es pro Datei:
 
-1. **Zuerst ins Archiv** – mit denselben Sicherungen wie beim Ziel.
-2. **Dann ins Ziel.**
+1. **Zuerst die weiteren Ziele** – der Reihe nach, mit denselben Sicherungen wie beim
+   Hauptziel (`.part`-Datei, Größenprüfung, atomares Umbenennen).
+2. **Dann das Hauptziel.**
 3. **Dann erst** wird die Quelle gelöscht (bei „verschieben“).
 
-Das Archiv kommt zuerst, weil ein Ziel wie Paperless Dateien sofort abholt: Scheitert
-das Archiv, wurde noch nichts geliefert, und die Datei bleibt in der Quelle. Scheitert
-danach das Ziel, merkt sich NetMover, dass die Datei schon archiviert ist – der nächste
-Versuch legt keine zweite Archivkopie an.
+Die weiteren Ziele kommen zuerst, weil ein Hauptziel wie Paperless Dateien sofort
+abholt: Scheitert ein weiteres Ziel, ist am Hauptziel noch nichts angekommen, und die
+Datei bleibt in der Quelle. NetMover merkt sich je Ziel, welche Datei es schon hat –
+ein neuer Versuch legt nirgends eine zweite Kopie an.
 
-Im Archiv wird **nie überschrieben**: Gleiche Namen werden immer umbenannt
-(`scan-1.pdf`), egal was die Regel fürs Ziel vorsieht. Ist das Archiv nicht erreichbar,
-wartet die Regel wie bei Quelle und Ziel. Im Kopiermodus bekommen Ziel und Archiv je
-eine Kopie, die Quelle bleibt.
+**Ein Ziel ist nicht erreichbar** (NAS aus, Server weg): Die übrigen Ziele bekommen die
+Datei trotzdem, auch das Hauptziel. Die Quelle bleibt liegen, bis das fehlende Ziel
+zurück ist; dann wird es nachbeliefert, und erst danach wird die Quelle gelöscht. Die
+Regel gilt solange als „wartet“ (Statusseite, `/healthz`, E-Mail beim Ausfall der
+Anbindung). Weitere Läufe während des Ausfalls erzeugen keine Protokolleinträge.
+
+In weiteren Zielen wird **nie überschrieben**: Gleiche Namen werden immer umbenannt
+(`scan-1.pdf`), egal was die Regel fürs Hauptziel vorsieht. Im Kopiermodus bekommt jedes
+Ziel eine Kopie, die Quelle bleibt; ein neu hinzugefügtes Ziel bekommt dabei auch die
+Dateien, die schon in der Quelle liegen.
+
+Dateien werden byte-genau kopiert – bei E-Rechnungen (ZUGFeRD/Factur-X) bleibt das
+eingebettete XML unverändert.
 
 ### Sicherheit und Grenzen {#regel-sicherheit}
 
@@ -230,7 +245,7 @@ Synology-Verwaltungsordner (`@eaDir`, `#recycle`).
 ### Regel kopieren {#regel-kopieren}
 
 Für eine ähnliche Regel – etwa für einen zweiten Quell-Unterordner – bei der Vorlage
-auf **Kopieren** klicken. Alle Einstellungen (Filter, Ziel, Archiv, Sicherheit,
+auf **Kopieren** klicken. Alle Einstellungen (Filter, Ziele, Sicherheit,
 Rechte) sind übernommen, der Name lautet „… (Kopie)“.
 
 Die Kopie ist zunächst **deaktiviert**: Mit gleicher Quelle würde sie sonst sofort mit
@@ -507,8 +522,8 @@ deaktiviert, Zugangsdaten müssen neu eingegeben werden.
 3. Anbindung **Paperless** (SFTP, Pfad `/opt/paperless_data/consume`, Schlüssel
    wählen, Benutzer = der Paperless-Benutzer), testen.
 4. Regel **Scans → Paperless**: Quelle NAS, Filter `*.pdf`, Ziel Paperless,
-   verschieben, umbenennen, 30 s. Optional **Archiv**: Anbindung NAS, Ordner
-   `Archiv/Scans`, Ablage nach Datum. **Probelauf**, dann aktivieren.
+   verschieben, umbenennen, 30 s. Optional als **weiteres Ziel** „Archiv“: Anbindung
+   NAS, Ordner `Archiv/Scans`, Ablage nach Datum. **Probelauf**, dann aktivieren.
 
 ### Jede Person in einen eigenen Ordner {#beispiel-unterordner}
 
@@ -516,6 +531,22 @@ Scannt jede Person in einen eigenen Unterordner (`Scans/max`, `Scans/erika`): pr
 Person eine Regel mit eigenem **Unterordner** in der Quelle und eigenem Ziel. Am
 schnellsten: die erste Regel einrichten, dann **Kopieren** und nur Unterordner und
 Ziel ändern.
+
+### Rechnungseingang: DMS, Buchhaltung und Archiv {#beispiel-rechnungen}
+
+E-Rechnungen (PDF) landen in einem Eingangsordner und sollen ins DMS, in den
+Importordner der Buchhaltungssoftware und ins Archiv.
+
+1. Anbindungen: *Rechnungseingang*, *DMS*, *Buchhaltung*, *Archiv*.
+2. Regel: Quelle *Rechnungseingang*, Filter `*.pdf;*.xml` (falls auch reine
+   XRechnung-XML kommt), **Hauptziel** *DMS*, Aktion verschieben.
+3. **Weitere Ziele**: „Buchhaltung“ (Ablage **wie in der Quelle** – die Software sucht
+   nicht in Unterordnern) und „Archiv“ (Ablage **nach Datum**).
+4. **Probelauf** mit ein, zwei Testrechnungen – er zeigt für jedes Ziel den künftigen
+   Pfad –, dann aktivieren.
+
+Ist das DMS kurz weg, bekommt die Buchhaltung die Rechnung trotzdem; das DMS wird
+nachbeliefert, sobald es zurück ist.
 
 ### Kopie als zusätzliche Sicherung {#beispiel-kopie}
 

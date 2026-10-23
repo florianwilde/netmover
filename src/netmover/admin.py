@@ -12,14 +12,12 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from netmover.crypto import SecretBox, generate_ssh_keypair
 from netmover.models import (
-    ArchiveKind,
-    ArchiveLayout,
     CollisionPolicy,
     Credential,
     CredentialKind,
@@ -29,6 +27,10 @@ from netmover.models import (
     PatternType,
     Rule,
     RuleAction,
+    RuleTarget,
+    TargetFile,
+    TargetKind,
+    TargetLayout,
 )
 from netmover.mounting.manager import CredentialData, MountConfig, MountManager
 from netmover.validation import (
@@ -50,6 +52,7 @@ from netmover.validation import (
 Errors = dict[str, str]
 
 MIN_INTERVAL = 10
+MAX_TARGETS = 9  # weitere Ziele zusätzlich zum Hauptziel
 _OWNER_RE = re.compile(r"^\d{1,10}(:\d{1,10})?$")
 
 
@@ -462,7 +465,7 @@ def delete_mount(s: Session, mounts: MountManager, mount_id: int) -> None:
         select(Rule.name).where(
             (Rule.src_mount_id == mount_id)
             | (Rule.dst_mount_id == mount_id)
-            | (Rule.archive_mount_id == mount_id)
+            | Rule.targets.any(RuleTarget.mount_id == mount_id)
         )
     ).all()
     if used:
@@ -478,6 +481,17 @@ def delete_mount(s: Session, mounts: MountManager, mount_id: int) -> None:
 
 
 # -- Regeln ----------------------------------------------------------------------------------
+
+
+@dataclass
+class TargetInput:
+    """Ein weiteres Ziel im Regelformular (Felder ``target_<n>_…``)."""
+
+    name: str = ""
+    kind: str = "mount"  # "mount" | "local"
+    mount_id: int | None = None
+    path: str = ""
+    layout: TargetLayout = TargetLayout.FLAT
 
 
 @dataclass
@@ -504,10 +518,7 @@ class RuleInput:
     dry_run: bool = False
     quarantine_path: str = ""
     quarantine_after: int = 3
-    archive_kind: ArchiveKind = ArchiveKind.NONE
-    archive_mount_id: int | None = None
-    archive_path: str = ""
-    archive_layout: ArchiveLayout = ArchiveLayout.FLAT
+    targets: list[TargetInput] = field(default_factory=list)
     extra: dict[str, str] = field(default_factory=dict)
 
 
@@ -535,10 +546,9 @@ def rule_input_from_model(r: Rule) -> RuleInput:
         dry_run=r.dry_run,
         quarantine_path=r.quarantine_path or "",
         quarantine_after=r.quarantine_after,
-        archive_kind=r.archive_kind,
-        archive_mount_id=r.archive_mount_id,
-        archive_path=r.archive_path,
-        archive_layout=r.archive_layout,
+        targets=[
+            TargetInput(t.name, t.kind.value, t.mount_id, t.path, t.layout) for t in r.targets
+        ],
     )
 
 
@@ -633,39 +643,70 @@ def parse_rule_form(s: Session, form: Mapping[str, str]) -> tuple[RuleInput, Err
         except ValidationError as exc:
             errors["quarantine_path"] = str(exc)
 
-    # Archiv
-    try:
-        d.archive_kind = ArchiveKind(form.get("archive_kind") or "none")
-        d.archive_layout = ArchiveLayout(form.get("archive_layout") or "flat")
-    except ValueError:
-        errors["archive_kind"] = "Ungültige Auswahl."
-    d.archive_path = (form.get("archive_path") or "").strip()
-    if d.archive_kind is ArchiveKind.MOUNT:
-        d.archive_mount_id = _int(form, "archive_mount_id", errors)
-        if d.archive_mount_id is None or s.get(Mount, d.archive_mount_id) is None:
-            errors["archive_mount_id"] = "Archiv-Anbindung wählen."
-        try:
-            d.archive_path = safe_relpath("archive_path", d.archive_path)
-        except ValidationError as exc:
-            errors["archive_path"] = str(exc)
-        if (
-            "archive_path" not in errors
-            and d.archive_mount_id == d.dst_mount_id
-            and d.dst_kind == "mount"
-            and d.archive_path == d.dst_path
-        ):
-            errors["archive_path"] = "Archiv und Ziel sind derselbe Ordner."
-    elif d.archive_kind is ArchiveKind.LOCAL:
-        d.archive_mount_id = None
-        try:
-            d.archive_path = safe_abspath("archive_path", d.archive_path)
-        except ValidationError as exc:
-            errors["archive_path"] = str(exc)
-        if d.dst_kind == "local" and d.archive_path == d.dst_path:
-            errors["archive_path"] = "Archiv und Ziel sind derselbe Ordner."
-    else:
-        d.archive_mount_id, d.archive_path = None, ""
+    d.targets = _parse_targets(s, form, d, errors)
     return d, errors
+
+
+def _parse_targets(
+    s: Session, form: Mapping[str, str], d: RuleInput, errors: Errors
+) -> list[TargetInput]:
+    """Weitere Ziele aus den Plätzen ``target_0_…`` bis ``target_8_…``; leere Plätze
+    (Art „–“) fallen weg, Fehler gelten für die verbleibende Reihenfolge."""
+    folders: dict[tuple[int | None, str], str] = {}
+    if "dst_path" not in errors:
+        folders[(d.dst_mount_id if d.dst_kind == "mount" else None, d.dst_path)] = "Hauptziel"
+    result: list[TargetInput] = []
+    for slot in range(MAX_TARGETS):
+        p = f"target_{slot}_"
+        kind = form.get(p + "kind") or ""
+        if not kind:
+            continue
+        n = len(result)
+        e = f"target_{n}_"
+        t = TargetInput(
+            name=(form.get(p + "name") or "").strip()[:100],
+            kind=kind,
+            path=(form.get(p + "path") or "").strip(),
+        )
+        try:
+            t.layout = TargetLayout(form.get(p + "layout") or "flat")
+        except ValueError:
+            errors[e + "layout"] = "Ungültige Auswahl."
+        if kind == TargetKind.MOUNT:
+            t.mount_id = _int(form, p + "mount_id", errors)
+            m = s.get(Mount, t.mount_id) if t.mount_id else None
+            if m is None:
+                errors[e + "mount_id"] = "Anbindung wählen."
+            try:
+                t.path = safe_relpath(e + "path", t.path)
+            except ValidationError as exc:
+                errors[e + "path"] = str(exc)
+            if (
+                t.mount_id == d.src_mount_id
+                and "src_subpath" not in errors
+                and t.path == d.src_subpath
+            ):
+                errors[e + "path"] = "Quelle und Ziel sind derselbe Ordner."
+            default_name = m.name if m is not None else ""
+        elif kind == TargetKind.LOCAL:
+            try:
+                t.path = safe_abspath(e + "path", t.path)
+            except ValidationError as exc:
+                errors[e + "path"] = str(exc)
+            default_name = t.path.rstrip("/").rsplit("/", 1)[-1]
+        else:
+            errors[e + "kind"] = "Ungültige Zielart."
+            default_name = ""
+        t.name = t.name or default_name or f"Ziel {n + 2}"
+        if e + "path" not in errors:
+            other = folders.get((t.mount_id, t.path))
+            if other:
+                errors[e + "path"] = f"Derselbe Ordner wie „{other}“."
+            folders[(t.mount_id, t.path)] = t.name
+        if any(x.name == t.name for x in result) or t.name == "Hauptziel":
+            errors[e + "name"] = "Name kommt in dieser Regel schon vor."
+        result.append(t)
+    return result
 
 
 def rule_copy_name(s: Session, name: str) -> str:
@@ -676,6 +717,26 @@ def rule_copy_name(s: Session, name: str) -> str:
         n += 1
         candidate = f"{name} (Kopie {n})"[:100]
     return candidate
+
+
+def _save_targets(s: Session, r: Rule, targets: list[TargetInput]) -> None:
+    """Weitere Ziele an Ort und Stelle aktualisieren – so bleibt ihre Buchführung
+    erhalten. Ändert sich Anbindung oder Ordner eines Ziels, beginnt sie neu."""
+    existing = list(r.targets)
+    for pos, ti in enumerate(targets):
+        kind = TargetKind(ti.kind)
+        mount_id = ti.mount_id if kind is TargetKind.MOUNT else None
+        if pos < len(existing):
+            t = existing[pos]
+            if t.id is not None and (t.kind, t.mount_id, t.path) != (kind, mount_id, ti.path):
+                s.execute(delete(TargetFile).where(TargetFile.target_id == t.id))
+        else:
+            t = RuleTarget()
+            r.targets.append(t)
+        t.position, t.name, t.kind, t.mount_id = pos, ti.name, kind, mount_id
+        t.path, t.layout = ti.path, ti.layout
+    for t in existing[len(targets) :]:
+        r.targets.remove(t)
 
 
 def save_rule(s: Session, d: RuleInput, rule_id: int | None = None) -> tuple[Rule | None, Errors]:
@@ -707,12 +768,9 @@ def save_rule(s: Session, d: RuleInput, rule_id: int | None = None) -> tuple[Rul
         "on_collision",
         "dry_run",
         "quarantine_after",
-        "archive_kind",
-        "archive_mount_id",
-        "archive_path",
-        "archive_layout",
     ):
         setattr(r, f, getattr(d, f))
+    _save_targets(s, r, d.targets)
     r.set_owner = d.set_owner or None
     r.set_mode = d.set_mode or None
     r.quarantine_path = d.quarantine_path or None

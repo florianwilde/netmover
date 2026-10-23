@@ -95,6 +95,13 @@ class RunService:
                 message = f"Pausiert, bis die Anbindung zurück ist: {result.message}"
                 update_counters = False  # „Fehler in Folge“ nicht hochzählen
                 event(log, "rule.waiting", level=30, rule=rule.name, reason=result.message or "")
+            elif update_counters and result.waiting_on:
+                # Ein Ziel fehlt, die übrigen wurden beliefert: Lauf normal
+                # protokollieren, Regel aber als wartend kennzeichnen (Statusseite, Kuma).
+                if rule.waiting_since is None:
+                    rule.waiting_since = finished
+                    event(log, "rule.waiting", level=30, rule=rule.name, reason=message or "")
+                rule.waiting_reason = "; ".join(result.waiting_on)
             elif (
                 update_counters
                 and rule.waiting_since is not None

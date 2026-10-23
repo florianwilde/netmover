@@ -25,7 +25,7 @@
     {{ check('recursive', 'Unterordner einbeziehen (Struktur bleibt erhalten)', d.recursive) }}
   </div></fieldset>
 
-  <fieldset><legend>Ziel <a class="legend-help" href="/help#regel-quelle-ziel" title="Hilfe">?</a></legend><div class="fields">
+  <fieldset><legend>Hauptziel <a class="legend-help" href="/help#regel-quelle-ziel" title="Hilfe">?</a></legend><div class="fields">
     {{ select('dst_kind', 'Zielart', [('mount', 'Anbindung'), ('local', 'Lokaler Pfad')], d.dst_kind, errors=errors) }}
     <div data-show-for="dst_kind:mount">{{ select('dst_mount_id', 'Anbindung', dst_options, d.dst_mount_id or '', errors=errors) }}</div>
     {{ field('dst_path', 'Zielordner', d.dst_path, errors=errors, hint='Anbindung: relativer Unterordner (wird angelegt). Lokal: absoluter Pfad, muss existieren.') }}
@@ -33,12 +33,22 @@
     {{ select('on_collision', 'Wenn Datei existiert', [('rename', 'umbenennen (scan-1.pdf)'), ('skip', 'überspringen'), ('overwrite', 'überschreiben')], d.on_collision.value, errors=errors) }}
   </div></fieldset>
 
-  <fieldset><legend>Archiv <a class="legend-help" href="/help#archiv" title="Hilfe">?</a></legend><div class="fields">
-    {{ select('archive_kind', 'Archiv', [('none', 'kein Archiv'), ('mount', 'Anbindung'), ('local', 'Lokaler Pfad')], d.archive_kind.value, errors=errors, hint='Zusätzliche Kopie. Die Quelle wird erst gelöscht, wenn Ziel UND Archiv sie haben.') }}
-    <div data-show-for="archive_kind:mount">{{ select('archive_mount_id', 'Archiv-Anbindung', dst_options, d.archive_mount_id or '', errors=errors) }}</div>
-    <div data-show-for="archive_kind:mount local">{{ field('archive_path', 'Archivordner', d.archive_path, errors=errors, hint='Anbindung: relativer Unterordner (wird angelegt). Lokal: absoluter Pfad, muss existieren.') }}</div>
-    <div data-show-for="archive_kind:mount local">{{ select('archive_layout', 'Ablage', [('flat', 'wie in der Quelle'), ('date', 'nach Datum (Jahr/Monat)')], d.archive_layout.value, errors=errors, hint='Im Archiv wird nie überschrieben – gleiche Namen werden umbenannt.') }}</div>
-  </div></fieldset>
+  <fieldset><legend>Weitere Ziele <a class="legend-help" href="/help#weitere-ziele" title="Hilfe">?</a></legend>
+    <p class="hint">Zusätzliche Kopien, z. B. Archiv oder Buchhaltung – bis zu {{ max_targets }}. Sie werden vor dem Hauptziel beliefert;
+      die Quelle wird erst gelöscht, wenn <strong>alle</strong> Ziele die Datei haben. Weitere Ziele überschreiben nie, gleiche Namen werden umbenannt.</p>
+    {% for i in range(max_targets) %}
+    {% set t = d.targets[i] if i < d.targets|length else none %}
+    <div class="target-slot"{% if i > 0 %} data-show-for="target_{{ i - 1 }}_kind:mount local|target_{{ i }}_kind:mount local"{% endif %}>
+      <div class="fields">
+        {{ select('target_' ~ i ~ '_kind', 'Ziel ' ~ (i + 2), [('', '– kein weiteres Ziel –'), ('mount', 'Anbindung'), ('local', 'Lokaler Pfad')], t.kind if t else '', errors=errors) }}
+        <div data-show-for="target_{{ i }}_kind:mount local">{{ field('target_' ~ i ~ '_name', 'Bezeichnung', t.name if t else '', errors=errors, placeholder='z. B. Archiv, Buchhaltung', attrs='maxlength="100"', hint='erscheint im Protokoll; leer = Name der Anbindung') }}</div>
+        <div data-show-for="target_{{ i }}_kind:mount">{{ select('target_' ~ i ~ '_mount_id', 'Anbindung', dst_options, (t.mount_id if t and t.mount_id else ''), errors=errors) }}</div>
+        <div data-show-for="target_{{ i }}_kind:mount local">{{ field('target_' ~ i ~ '_path', 'Ordner', t.path if t else '', errors=errors, hint='Anbindung: relativer Unterordner (wird angelegt). Lokal: absoluter Pfad, muss existieren.') }}</div>
+        <div data-show-for="target_{{ i }}_kind:mount local">{{ select('target_' ~ i ~ '_layout', 'Ablage', [('flat', 'wie in der Quelle'), ('date', 'nach Datum (Jahr/Monat)')], t.layout.value if t else 'flat', errors=errors) }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </fieldset>
 
   <fieldset><legend>Sicherheit und Grenzen <a class="legend-help" href="/help#regel-sicherheit" title="Hilfe">?</a></legend><div class="fields">
     {{ field('stability_seconds', 'Stabilitätsfenster (s)', d.stability_seconds, type='number', errors=errors, attrs='min="0"', hint='Größe und Zeit müssen so lange gleich bleiben') }}

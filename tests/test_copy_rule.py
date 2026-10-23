@@ -10,14 +10,15 @@ from sqlalchemy import select
 
 from netmover.db import session_scope
 from netmover.models import (
-    ArchiveKind,
-    ArchiveLayout,
     CopiedFile,
     Mount,
     MountType,
     Rule,
     RuleAction,
+    RuleTarget,
     Run,
+    TargetKind,
+    TargetLayout,
 )
 from tests.webutil import post
 
@@ -56,10 +57,17 @@ def _setup(state: Any, tmp_path: Path) -> tuple[int, int]:
             action=RuleAction.COPY,
             set_mode="0640",
             quarantine_path="_q",
-            archive_kind=ArchiveKind.MOUNT,
-            archive_mount_id=a.id,
-            archive_path="scans",
-            archive_layout=ArchiveLayout.DATE,
+            targets=[
+                RuleTarget(
+                    position=0,
+                    name="Archiv",
+                    kind=TargetKind.MOUNT,
+                    mount_id=a.id,
+                    path="scans",
+                    layout=TargetLayout.DATE,
+                ),
+                RuleTarget(position=1, name="Buchhaltung", kind=TargetKind.LOCAL, path="/srv/buha"),
+            ],
         )
         s.add(r)
         s.flush()
@@ -71,7 +79,8 @@ def _setup(state: Any, tmp_path: Path) -> tuple[int, int]:
 def _rule(state: Any, name: str) -> Rule:
     with state.session_factory() as s:
         r = s.scalars(select(Rule).where(Rule.name == name)).one()
-        s.expunge(r)
+        _ = list(r.targets)  # vor dem Lösen aus der Session laden
+        s.expunge_all()
         return r
 
 
@@ -105,7 +114,9 @@ def test_copy_form_is_prefilled_and_disabled(
     assert form["name"] == "Scans → Paperless (Kopie)"
     assert "enabled" not in form  # Häkchen „Aktiv“ nicht gesetzt
     assert form["pattern"] == "*.pdf;*.jpg" and form["src_subpath"] == "max"
-    assert form["archive_kind"] == "mount" and form["archive_layout"] == "date"
+    assert form["target_0_kind"] == "mount" and form["target_0_layout"] == "date"
+    assert form["target_0_name"] == "Archiv" and form["target_1_path"] == "/srv/buha"
+    assert form["target_2_kind"] == ""
 
 
 def test_copy_saves_new_rule_with_all_settings(
@@ -131,12 +142,14 @@ def test_copy_saves_new_rule_with_all_settings(
         "action",
         "set_mode",
         "quarantine_path",
-        "archive_kind",
-        "archive_mount_id",
-        "archive_path",
-        "archive_layout",
     ):
         assert getattr(copy, f) == getattr(orig, f), f
+
+    def targets(r: Rule) -> list[tuple[object, ...]]:
+        return [(t.position, t.name, t.kind, t.mount_id, t.path, t.layout) for t in r.targets]
+
+    assert len(targets(copy)) == 2 and targets(copy) == targets(orig)
+    assert {t.id for t in copy.targets}.isdisjoint(t.id for t in orig.targets)
     # Protokoll und Buchführung beginnen neu
     with state.session_factory() as s:
         assert s.scalars(select(Run).where(Run.rule_id == copy.id)).all() == []

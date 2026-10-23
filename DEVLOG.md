@@ -24,9 +24,37 @@ Zeiten in Ortszeit (Europe/Berlin).
 | 2026-10-12 | 00:46 | 00:55 | 0:09  | –       | Anbindungen kopieren (0.8.0)           |
 | 2026-10-15 | 09:17 | 09:26 | 0:09  | –       | Regeln kopieren (0.9.0)                |
 | 2026-10-23 | 13:42 | 14:10 | 0:28  | –       | Sicherung, Kuma-Kennzahlen, CI (0.10.0) |
-| **Summe**  |       |       | **4:35** |      |                                        |
+| 2026-10-24 | 00:10 | 01:00 | 0:50  | –       | Mehrere Ziele je Regel (0.11.0)        |
+| **Summe**  |       |       | **5:25** |      |                                        |
 
 ---
+
+## 2026-10-24 · 00:10–01:00 · Mehrere Ziele je Regel (0.11.0)
+
+**Anlass** – Kundenanforderung Rechnungseingang: E-Rechnung ins DMS, in den
+Importordner der Buchhaltung **und** ins Archiv – drei Ziele, Ziel + Archiv reichte
+nicht mehr.
+
+**Erledigt** – Tabellen `rule_targets`/`target_files` (Migration 0005, Archiv wird
+Ziel „Archiv“), Engine mit Zielliste, Runner prüft Ziele einzeln, `RunResult.waiting_on`,
+Formular mit 9 Plätzen (nächster Platz erscheint per `data-show-for`, kein neues JS),
+Export/Import inkl. Altformat. 392 Tests. Gegenproben: Quelle trotz fehlendem Ziel
+löschen → 3 Tests rot; Buchführung je Ziel weglassen → 6 Tests rot.
+
+**Entscheidungen**
+- *Hauptziel bleibt in `rules`*, nur die weiteren Ziele in einer Tabelle: kleinster
+  Eingriff ins Schema, bewährte Reihenfolge (weitere Ziele zuerst, Hauptziel zuletzt,
+  dort weiter der schnelle Umbenennen-Weg) bleibt.
+- *Nicht erreichbares Ziel blockiert die anderen nicht*: Bei 3–10 Zielen wäre sonst
+  jede gestörte Freigabe ein Stillstand. Das Hauptziel bekommt dann eine Kopie
+  (Buchführung in `copied_files`), die Quelle wird erst nach der Nachlieferung gelöscht.
+  Gelöscht wird nur in dem Lauf, in dem das letzte Ziel die Datei bekommt.
+- *Kein Protokoll-Spam*: Fehlen nur noch nicht erreichbare Ziele, liefert `_process`
+  None; ein Lauf ohne Einträge wird wie „wartet“ behandelt (kein neuer Run).
+- *Beim Speichern Ziele an Ort und Stelle aktualisieren*: Buchführung bleibt, außer
+  Anbindung oder Ordner eines Ziels ändern sich.
+- *Weitere Ziele überschreiben nie* (wie bisher das Archiv) – kein eigenes
+  Kollisionsfeld je Ziel, weniger Fehlerquellen.
 
 ## 2026-10-23 · 13:42–14:10 · Sicherung, Kuma-Kennzahlen, CI (0.10.0)
 

@@ -219,3 +219,56 @@ def test_migration_files_are_named_after_their_revision() -> None:
     versions = Path(__file__).parent.parent / "src/netmover/migrations/versions"
     names = sorted(p.name.split("_", 1)[0] for p in versions.glob("[0-9]*.py"))
     assert names == _revisions()
+
+
+def test_0005_turns_archive_into_first_target_and_back(tmp_path: Path) -> None:
+    """Archiv (0004) samt Buchführung wird zum weiteren Ziel „Archiv“ – und zurück."""
+    db = tmp_path / "v09.db"
+    url = f"sqlite:///{db}"
+    upgrade(url, "0001")
+    _seed(db)
+    upgrade(url, "0004")
+    c = sqlite3.connect(db)
+    c.executescript(
+        """
+        UPDATE rules SET archive_kind = 'mount', archive_mount_id = 1,
+                         archive_path = 'archiv', archive_layout = 'date';
+        INSERT INTO archived_files (rule_id, src_relpath, size, mtime_ns, archive_path,
+                                    archived_at)
+            VALUES (1, 'a.pdf', 3, 7, '/mnt/netmover/nas/archiv/2026/10/a.pdf',
+                    '2026-10-12 09:00:00');
+        """
+    )
+    c.commit()
+    c.close()
+
+    upgrade(url, "0005")
+    c = sqlite3.connect(db)
+    assert c.execute(
+        "SELECT rule_id, position, name, kind, mount_id, path, layout FROM rule_targets"
+    ).fetchall() == [(1, 0, "Archiv", "mount", 1, "archiv", "date")]
+    assert c.execute("SELECT src_relpath, size, mtime_ns FROM target_files").fetchall() == [
+        ("a.pdf", 3, 7)
+    ]
+    cols = [r[1] for r in c.execute("PRAGMA table_info(rules)")]
+    assert not [col for col in cols if col.startswith("archive_")]
+    assert (
+        c.execute("SELECT name FROM sqlite_master WHERE name = 'archived_files'").fetchall() == []
+    )
+    # zweites Ziel – geht beim Downgrade verloren, das erste bleibt
+    c.execute(
+        "INSERT INTO rule_targets (rule_id, position, name, kind, mount_id, path, layout) "
+        "VALUES (1, 1, 'Buchhaltung', 'local', NULL, '/srv/buha', 'flat')"
+    )
+    c.commit()
+    c.close()
+    assert _state(db)["fk_violations"] == []
+
+    command.downgrade(alembic_config(url), "0004")
+    c = sqlite3.connect(db)
+    assert c.execute(
+        "SELECT archive_kind, archive_mount_id, archive_path, archive_layout FROM rules"
+    ).fetchall() == [("mount", 1, "archiv", "date")]
+    assert c.execute("SELECT rule_id, src_relpath FROM archived_files").fetchall() == [(1, "a.pdf")]
+    c.close()
+    assert _state(db)["fk_violations"] == []

@@ -17,8 +17,9 @@ Legende: ✅ erledigt · 🔨 in Arbeit · 📋 geplant · 💡 Idee (noch nicht
 
 ### Weg zu 1.0
 
-0.10.0 Sicherung + CI → 0.11.0 restliche Punkte oben → ein bis zwei Wochen ruhiger
-Betrieb → 1.0.0 ohne neue Funktionen.
+0.10.0 Sicherung + CI → 0.11.0 mehrere Ziele (Kundenanforderung; Datenformat muss vor
+1.0 feststehen) → 0.12.0 restliche Punkte oben → ein bis zwei Wochen ruhiger Betrieb →
+1.0.0 ohne neue Funktionen.
 
 **Entschieden:** Kein TLS im internen Netz – HTTP auf Port 8080 ist eine bewusste
 Entscheidung (README, „Sicherheit“). Der Reverse Proxy bleibt dokumentiert für
@@ -31,11 +32,13 @@ nicht vertrauenswürdige Netze.
 | 💡 | **Eine Regel, mehrere Ziele** je Quell-Unterordner | Heute: eine Regel pro Unterordner |
 | 💡 | Metriken für Prometheus (`/metrics`) | Ergänzt `/healthz`, z. B. Dateien pro Tag |
 | 💡 | Deinstallationsskript | Gegenstück zu `install.sh` |
+| 💡 | Prüfsumme (SHA-256) je Regel: Kopie zurücklesen und vergleichen | Zusätzlicher Nachweis, z. B. für Rechnungen (GoBD) |
 
 ## Erledigt
 
 | Version | Thema |
 |---|---|
+| 0.11.0 | Mehrere Ziele je Regel (bis zu 10), unabhängig erreichbar; Archiv wird zum weiteren Ziel |
 | 0.10.0 | Tägliche verschlüsselte Sicherung + `netmover restore`; Kennzahlen für Kuma; CI in Gitea; Migrationstest-Pflicht |
 | 0.9.0 | Regeln kopieren (Kopie zunächst deaktiviert) |
 | 0.8.0 | Anbindungen kopieren inklusive Zugangsdaten |

@@ -35,6 +35,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from netmover import __version__
 from netmover.admin import (
+    MAX_TARGETS,
     AdminError,
     MountInput,
     RuleInput,
@@ -79,6 +80,7 @@ from netmover.models import (
     PatternType,
     Rule,
     RuleAction,
+    RuleTarget,
     Run,
     RunItem,
     RunStatus,
@@ -161,6 +163,7 @@ def _duration(start: datetime | None, end: datetime | None) -> str:
 
 TEMPLATES = Jinja2Templates(directory=str(files("netmover.web") / "templates"))
 TEMPLATES.env.filters.update(ago=_ago, localdt=_localdt, bytes=_bytes)
+TEMPLATES.env.globals["max_targets"] = MAX_TARGETS
 TEMPLATES.env.globals.update(
     version=__version__,
     duration=_duration,
@@ -452,14 +455,9 @@ class RuleView:
     target: str
 
 
-def _archive_target(r: Rule) -> str | None:
-    if r.archive_kind.value == "none":
-        return None
-    if r.archive_kind.value == "local" or r.archive_mount is None:
-        place = r.archive_path
-    else:
-        place = f"{r.archive_mount.name}:/{r.archive_path}"
-    return place + (" (nach Datum)" if r.archive_layout.value == "date" else "")
+def _extra_target(t: RuleTarget) -> str:
+    place = t.path if t.kind.value == "local" or t.mount is None else f"{t.mount.name}:/{t.path}"
+    return f"{t.name} {place}" + (" (nach Datum)" if t.layout.value == "date" else "")
 
 
 def _rule_target(r: Rule) -> str:
@@ -468,8 +466,7 @@ def _rule_target(r: Rule) -> str:
         dst = r.dst_path
     else:
         dst = f"{r.dst_mount.name}:/{r.dst_path}" if r.dst_path else f"{r.dst_mount.name}:/"
-    archive = _archive_target(r)
-    return f"{src} → {dst}" + (f" + Archiv {archive}" if archive else "")
+    return f"{src} → {dst}" + "".join(f" + {_extra_target(t)}" for t in r.targets)
 
 
 async def _status_context(request: Request) -> dict[str, Any]:

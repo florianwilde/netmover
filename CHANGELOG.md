@@ -8,6 +8,30 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 
 ## [Unreleased]
 
+## [0.11.0] – 2026-10-24
+
+### Hinzugefügt
+- **Mehrere Ziele je Regel**: neben dem Hauptziel bis zu 9 weitere Ziele (Anbindung
+  oder lokaler Pfad, je mit Bezeichnung, Ordner und Ablage flach/nach Datum) – z. B.
+  Rechnung ins DMS, in die Buchhaltung und ins Archiv. Weitere Ziele werden vor dem
+  Hauptziel beliefert, jedes mit eigener Buchführung; die Quelle wird erst gelöscht,
+  wenn alle Ziele die Datei haben.
+- **Ein nicht erreichbares Ziel hält die anderen nicht auf**: Die erreichbaren Ziele
+  (auch das Hauptziel) werden beliefert, die Quelle bleibt liegen, bis das fehlende
+  Ziel zurück ist und nachbeliefert wurde. Die Regel gilt solange als wartend;
+  Wiederholungen während des Ausfalls erzeugen keine Protokolleinträge.
+- Probelauf zeigt für jedes Ziel den künftigen Pfad.
+- Im Kopiermodus bekommt ein neu hinzugefügtes Ziel auch die schon vorhandenen Dateien.
+- Anleitung: Beispiel „Rechnungseingang: DMS, Buchhaltung und Archiv“.
+
+### Geändert
+- Das Archiv ist jetzt ein weiteres Ziel. Migration 0005 übernimmt vorhandene Archive
+  als Ziel „Archiv“ samt Buchführung (`rule_targets`, `target_files` statt
+  `rules.archive_*`, `archived_files`). Downgrade: nur das erste weitere Ziel bleibt.
+- Export enthält die Ziele (`targets`); Exporte älterer Versionen mit Archiv werden
+  beim Import umgewandelt.
+- Regelformular: „Ziel“ heißt jetzt „Hauptziel“, „Archiv“ wird zu „Weitere Ziele“.
+
 ## [0.10.0] – 2026-10-23
 
 ### Hinzugefügt
@@ -307,7 +331,8 @@ Erste Version.
 - Löschen von Zugangsdaten, die noch von einem Mount benutzt werden, trennt den
   Mount nicht mehr stillschweigend ab, sondern wird von der Datenbank abgelehnt.
 
-[Unreleased]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.10.0...HEAD
+[Unreleased]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.11.0...HEAD
+[0.11.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.10.0...v0.11.0
 [0.10.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.9.0...v0.10.0
 [0.9.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.8.0...v0.9.0
 [0.8.0]: https://git.wilde-server.de/florian.wilde/netmover/compare/v0.7.0...v0.8.0

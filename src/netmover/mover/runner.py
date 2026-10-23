@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from netmover.db import session_scope
 from netmover.logging_setup import get_logger
-from netmover.models import MountType, Rule, RunStatus
+from netmover.models import MountType, Rule, RunStatus, TargetKind
 from netmover.mounting.manager import MountManager, MountUnavailable
 from netmover.mounting.sftp import SftpError, connect
 from netmover.mover.destinations import (
@@ -32,7 +32,7 @@ from netmover.mover.destinations import (
     SftpDestination,
     TransferError,
 )
-from netmover.mover.engine import Engine, RuleSnapshot, RunResult
+from netmover.mover.engine import Engine, RuleSnapshot, RunResult, Target
 from netmover.mover.ledger import Ledger
 from netmover.mover.sources import LocalSource, SftpSource, Source
 from netmover.timeouts import CancelToken, OperationTimeout, run_with_watchdog
@@ -56,11 +56,18 @@ class RulePlan:
     quarantine_path: str | None
     op_timeout: int
     dry_run: bool
-    archive_kind: str = "none"
-    archive_mount_id: int | None = None
-    archive_type: MountType | None = None
-    archive_name: str | None = None
-    archive_path: str = ""
+    targets: tuple[TargetPlan, ...] = ()
+
+
+@dataclass(frozen=True)
+class TargetPlan:
+    id: int
+    name: str
+    mount_id: int | None  # None = lokaler Pfad
+    mount_type: MountType | None
+    mount_name: str | None
+    path: str
+    layout: str
 
 
 def parse_owner(value: str | None) -> tuple[int, int] | None:
@@ -97,7 +104,6 @@ def load_plan(session: Session, rule_id: int) -> RulePlan:
         set_mode=parse_mode(r.set_mode),
         quarantine_after=r.quarantine_after,
         dst_root_squash=dst.root_squash if dst is not None else None,
-        archive_layout=r.archive_layout.value,
     )
     return RulePlan(
         snapshot=snap,
@@ -115,12 +121,36 @@ def load_plan(session: Session, rule_id: int) -> RulePlan:
         else None,
         op_timeout=r.op_timeout_seconds,
         dry_run=r.dry_run,
-        archive_kind=r.archive_kind.value,
-        archive_mount_id=r.archive_mount_id if r.archive_kind.value == "mount" else None,
-        archive_type=r.archive_mount.type if r.archive_mount is not None else None,
-        archive_name=r.archive_mount.name if r.archive_mount is not None else None,
-        archive_path=r.archive_path,
+        targets=tuple(
+            TargetPlan(
+                id=t.id,
+                name=t.name or f"Ziel {i + 2}",
+                mount_id=t.mount_id if t.kind is TargetKind.MOUNT else None,
+                mount_type=t.mount.type if t.mount is not None else None,
+                mount_name=t.mount.name if t.mount is not None else None,
+                path=t.path,
+                layout=t.layout.value,
+            )
+            for i, t in enumerate(r.targets)
+        ),
     )
+
+
+def _with_waiting(result: RunResult) -> RunResult:
+    """Nicht erreichbare Ziele: Ist in diesem Lauf sonst nichts passiert, gilt die
+    Regel als wartend (wie bei einer fehlenden Quelle, ohne Protokolleintrag);
+    sonst wird der Lauf normal protokolliert und nennt die fehlenden Ziele."""
+    if not result.waiting_on or result.status is RunStatus.ERROR:
+        return result
+    reason = "; ".join(result.waiting_on)
+    if not result.items:
+        result.status = RunStatus.ERROR
+        result.unavailable = True
+        result.message = reason
+    else:
+        note = f"wartet auf: {reason}"
+        result.message = f"{result.message}; {note}" if result.message else note
+    return result
 
 
 class RuleRunner:
@@ -182,44 +212,51 @@ class RuleRunner:
     ) -> RunResult:
         try:
             src_mp = self.mounts.check_alive(plan.src_mount_id)
-            dst_mp = (
-                self.mounts.check_alive(plan.dst_mount_id)
-                if plan.dst_mount_id is not None
-                else None
-            )
-            arch_mp = (
-                self.mounts.check_alive(plan.archive_mount_id)
-                if plan.archive_mount_id is not None
-                else None
-            )
         except MountUnavailable as exc:
             return RunResult(RunStatus.ERROR, dry, message=str(exc), unavailable=True)
+
+        # Ziele einzeln prüfen: ein nicht erreichbares Ziel hält die übrigen nicht auf.
+        def alive(mount_id: int | None) -> tuple[Path | None, str]:
+            if mount_id is None:
+                return None, ""
+            try:
+                return self.mounts.check_alive(mount_id), ""
+            except MountUnavailable as exc:
+                return None, str(exc)
+
+        dst_mp, dst_down = alive(plan.dst_mount_id)
+        target_state = [(t, *alive(t.mount_id)) for t in plan.targets]
+        if dst_down and all(down for _t, _mp, down in target_state):
+            return RunResult(RunStatus.ERROR, dry, message=dst_down, unavailable=True)
 
         try:
             make_source = self._source_factory(plan, src_mp)
             src_root = src_mp / plan.src_subpath if src_mp and plan.src_subpath else src_mp
-            make_dest = self.destination_factory(
-                "dst_path",
-                plan.dst_mount_id,
-                plan.dst_type,
-                plan.dst_name,
-                plan.dst_path,
-                dst_mp,
-                src_root,
-            )
-            make_archive = (
-                self.destination_factory(
-                    "archive_path",
-                    plan.archive_mount_id,
-                    plan.archive_type,
-                    plan.archive_name,
-                    plan.archive_path,
-                    arch_mp,
+            make_dest = (
+                None
+                if dst_down
+                else self.destination_factory(
+                    "dst_path",
+                    plan.dst_mount_id,
+                    plan.dst_type,
+                    plan.dst_name,
+                    plan.dst_path,
+                    dst_mp,
                     src_root,
                 )
-                if plan.archive_kind != "none"
-                else None
             )
+            make_targets = [
+                (
+                    t,
+                    down,
+                    None
+                    if down
+                    else self.destination_factory(
+                        "target_path", t.mount_id, t.mount_type, t.mount_name, t.path, mp, src_root
+                    ),
+                )
+                for t, mp, down in target_state
+            ]
         except (ValidationError, TransferError, SftpError) as exc:
             return RunResult(RunStatus.ERROR, dry, message=str(exc))
 
@@ -228,23 +265,34 @@ class RuleRunner:
             try:
                 source = make_source()
                 opened.append(source)
-                dest = make_dest()
-                opened.append(dest)
-                archive = make_archive() if make_archive is not None else None
-                if archive is not None:
-                    opened.append(archive)
-                return self.engine.execute(
+                dest = make_dest() if make_dest is not None else None
+                if dest is not None:
+                    opened.append(dest)
+                targets: list[Target] = []
+                for t, down, factory in make_targets:
+                    tdest = None
+                    if factory is not None:
+                        try:
+                            tdest = factory()
+                        except (TransferError, SftpError, OSError) as exc:
+                            down = f"„{t.name}“ nicht erreichbar: {exc}"
+                    if tdest is not None:
+                        opened.append(tdest)
+                    targets.append(Target(t.id, t.name, tdest, t.layout, down))
+                result = self.engine.execute(
                     plan.snapshot,
                     source,
                     dest,
                     token,
                     dry_run=dry,
                     quarantine_rel=plan.quarantine_path,
-                    archive=archive,
+                    targets=targets,
+                    dest_reason=dst_down,
                 )
             finally:
                 for item in reversed(opened):
                     item.close()
+            return _with_waiting(result)
 
         def finish() -> None:
             self._started.pop(rule_id, None)
@@ -302,7 +350,7 @@ class RuleRunner:
         src_root: Path | None,
     ) -> Callable[[], Destination]:
         """Ziel oder Archiv: lokaler Pfad (``mount_id`` None), SFTP oder Kernel-Mount."""
-        what = {"archive_path": "Archiv", "backup_path": "Sicherungsziel"}.get(field, "Ziel")
+        what = {"target_path": "weiteres Ziel", "backup_path": "Sicherungsziel"}.get(field, "Ziel")
         if mount_id is None:
             root = Path(safe_abspath(field, path))
             if self._under_mount_base(root):
