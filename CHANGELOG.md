@@ -8,6 +8,10 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 
 ## [Unreleased]
 
+### Hinzugefügt
+- Gitea-Releases mit dem Changelog-Abschnitt als Text: `scripts/gitea_release.py`
+  (einzeln oder `--all`) und automatisch per CI bei jedem Versions-Tag.
+
 ## [0.11.0] – 2026-10-24
 
 ### Hinzugefügt

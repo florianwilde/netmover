@@ -35,3 +35,20 @@ jobs:
         run: shellcheck deploy/*.sh
       - name: pytest (inkl. Migrationen auf befüllter Datenbank)
         run: pytest -q
+
+  # Tag vX.Y.Z → Gitea-Release mit dem Abschnitt aus CHANGELOG.md (nur wenn alles grün)
+  release:
+    needs: pruefen
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Release anlegen
+        run: python3 scripts/gitea_release.py "${GITHUB_REF_NAME}"
+        env:
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+          GITEA_URL: ${{ github.server_url }}
+          GITEA_REPO: ${{ github.repository }}

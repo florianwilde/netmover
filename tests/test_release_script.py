@@ -1,0 +1,41 @@
+"""scripts/gitea_release.py: Release-Text aus dem Changelog."""
+
+from __future__ import annotations
+
+import importlib.util
+import re
+from pathlib import Path
+from types import ModuleType
+
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def _script() -> ModuleType:
+    spec = importlib.util.spec_from_file_location(
+        "gitea_release", ROOT / "scripts/gitea_release.py"
+    )
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_every_changelog_version_has_notes() -> None:
+    rel = _script()
+    text = (ROOT / "CHANGELOG.md").read_text()
+    versions = re.findall(r"^## \[(\d+\.\d+\.\d+)\]", text, re.M)
+    assert "0.1.0" in versions
+    for v in versions:
+        notes = rel.changelog_section(text, v)
+        assert notes and "## [" not in notes and not notes.startswith("[")
+
+
+def test_section_boundaries() -> None:
+    rel = _script()
+    text = "## [Unreleased]\n\n## [0.2.0] – x\n\n- neu\n\n## [0.1.0] – y\n\n- alt\n\n[0.2.0]: https://e\n"
+    assert rel.changelog_section(text, "0.2.0") == "- neu"
+    assert rel.changelog_section(text, "0.1.0") == "- alt"
+    with pytest.raises(SystemExit):
+        rel.changelog_section(text, "9.9.9")
