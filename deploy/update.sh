@@ -23,7 +23,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 if [ ! -d "$SRC/.git" ]; then
     echo "Kein Git-Klon unter $SRC. Einmalig einrichten:" >&2
-    echo "  git clone https://git.wilde-server.de/florian.wilde/netmover.git $SRC" >&2
+    echo "  git clone https://github.com/florianwilde/netmover.git $SRC" >&2
     exit 1
 fi
 

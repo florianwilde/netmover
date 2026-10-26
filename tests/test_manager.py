@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import errno
+import os
 from pathlib import Path
 
 import pytest
@@ -211,6 +212,8 @@ def test_check_mount_failure_reports_steps(manager: MountManager, mount_base: Pa
 def test_check_read_only_share_is_source_copy_only(
     manager: MountManager, fake_backend: FakeMountBackend
 ) -> None:
+    if os.geteuid() == 0:
+        pytest.skip("als root ist jedes Verzeichnis beschreibbar")
     remote = fake_backend.export("nas", "ro")
     remote.chmod(0o555)
     try:

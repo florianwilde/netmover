@@ -1,4 +1,4 @@
-"""scripts/gitea_release.py: Release-Text aus dem Changelog."""
+"""scripts/github_release.py: Release-Text aus dem Changelog."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def _script() -> ModuleType:
     spec = importlib.util.spec_from_file_location(
-        "gitea_release", ROOT / "scripts/gitea_release.py"
+        "github_release", ROOT / "scripts/github_release.py"
     )
     assert spec and spec.loader
     mod = importlib.util.module_from_spec(spec)
@@ -39,3 +39,16 @@ def test_section_boundaries() -> None:
     assert rel.changelog_section(text, "0.1.0") == "- alt"
     with pytest.raises(SystemExit):
         rel.changelog_section(text, "9.9.9")
+
+
+def test_remote_repo_from_origin() -> None:
+    rel = _script()
+    for url in (
+        "https://github.com/florianwilde/netmover",
+        "https://github.com/florianwilde/netmover.git",
+        "git@github.com:florianwilde/netmover.git",
+        "ssh://git@github.com/florianwilde/netmover.git",
+    ):
+        assert rel.remote_repo(url) == "florianwilde/netmover"
+    with pytest.raises(SystemExit):
+        rel.remote_repo("https://git.example.org/florian/netmover.git")

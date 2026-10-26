@@ -56,10 +56,24 @@ heißt deshalb immer **kopieren, prüfen, dann erst die Quelle löschen**:
 
 ```bash
 apt install -y git
-git clone https://git.wilde-server.de/florian.wilde/netmover.git /opt/netmover/src
+git clone https://github.com/florianwilde/netmover.git /opt/netmover/src
 cd /opt/netmover/src && git checkout "$(git tag -l 'v*' --sort=-v:refname | head -n 1)"
 ./deploy/install.sh
 ```
+
+Solange das Repository auf GitHub privat ist, braucht der Server einen
+Lesezugang. Am einfachsten geht das mit einem **Deploy Key**: ein SSH-Schlüssel, der
+nur dieses eine Repository lesen darf.
+
+```bash
+ssh-keygen -t ed25519 -N "" -C "netmover@$(hostname)" -f /root/.ssh/netmover_deploy
+printf 'Host github.com\n    IdentityFile /root/.ssh/netmover_deploy\n    IdentitiesOnly yes\n' >> /root/.ssh/config
+cat /root/.ssh/netmover_deploy.pub
+```
+
+Den öffentlichen Schlüssel auf GitHub unter *Settings → Deploy keys → Add deploy key*
+eintragen („Allow write access“ **nicht** ankreuzen). Dann statt der HTTPS-Adresse
+oben `git@github.com:florianwilde/netmover.git` klonen.
 
 Das Skript installiert `python3-venv`, `cifs-utils`, `nfs-common` und `git`. Es
 richtet NetMover in `/opt/netmover/venv` ein, installiert
@@ -75,12 +89,21 @@ netmover-update v0.2.0     # bestimmte Version
 ```
 
 `netmover-update` geht so vor:
-1. Neue Versions-Tags aus Gitea holen und die Änderungen laut Changelog anzeigen.
+1. Neue Versions-Tags von GitHub holen und die Änderungen laut Changelog anzeigen.
 2. **Datenbank, `secret.key` und Einstellungen nach `/var/backups/netmover/` sichern**
    (die letzten 10 bleiben).
 3. Die Version auschecken, installieren und den Dienst neu starten. Neue
    Datenbank-Migrationen laufen dabei automatisch.
 4. `/healthz` prüfen.
+
+**Umzug von Gitea:** Installationen, die noch aus `git.wilde-server.de` geklont
+wurden, einmalig auf GitHub umstellen (privates Repository: Deploy Key wie oben
+einrichten und die SSH-Adresse nehmen):
+
+```bash
+git -C /opt/netmover/src remote set-url origin git@github.com:florianwilde/netmover.git
+netmover-update --list
+```
 
 Die Mounts bleiben die ganze Zeit eingehängt. Geht etwas schief, nennt das Skript
 die Befehle, um die Sicherung zurückzuspielen und zur vorherigen Version zu wechseln.
@@ -459,10 +482,9 @@ eigener Test dazu.
 
 ### CI
 
-`.gitea/workflows/ci.yml` führt bei jedem Push und Pull Request ruff, mypy,
-shellcheck und alle Tests aus (Python 3.12 und 3.13). Voraussetzung: Actions sind
-im Repository aktiviert und ein `act_runner` mit dem Label `ubuntu-latest` ist
-registriert.
+`.github/workflows/ci.yml` führt bei jedem Push auf `main`, jedem Versions-Tag und
+jedem Pull Request ruff, mypy, shellcheck und alle Tests aus (Python 3.12 und 3.13,
+GitHub Actions).
 
 ### Arbeitsweise
 
@@ -473,8 +495,8 @@ registriert.
   1. CI grün? Dann den Abschnitt `[Unreleased]` mit Versionsnummer versehen.
   2. Die Version in `src/netmover/__init__.py` anheben.
   3. Einen annotierten Tag `vX.Y.Z` setzen (Betreff = Titel des Releases) und pushen.
-  4. Release in Gitea: macht die CI nach grünem Lauf selbst; von Hand mit
-     `scripts/gitea_release.py vX.Y.Z` (Token in `~/.config/netmover/gitea-token`,
+  4. Release auf GitHub: macht die CI nach grünem Lauf selbst; von Hand mit
+     `scripts/github_release.py vX.Y.Z` (Token in `~/.config/netmover/github-token`,
      Modus 0600). `--all` legt fehlende Releases für alle Tags an.
 - Arbeitszeit und Entscheidungen stehen in [DEVLOG.md](DEVLOG.md).
 - htmx 2.0.4 liegt unter `src/netmover/web/static/htmx.min.js`

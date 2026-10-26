@@ -1102,7 +1102,7 @@ async def log_items(request: Request, run_id: int) -> Response:
 
 # -- Hilfe --------------------------------------------------------------------------------------
 
-REPO_URL = "https://git.wilde-server.de/florian.wilde/netmover"
+REPO_URL = "https://github.com/florianwilde/netmover"
 _IMG_NAME = re.compile(r"^[a-z0-9_-]+\.png$")
 
 

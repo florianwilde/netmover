@@ -48,7 +48,7 @@ path = "src/netmover/__init__.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/netmover"]
 
-# Die Anleitung liegt für Gitea unter docs/ und wird für die Hilfe-Seite mitgeliefert.
+# Die Anleitung liegt für GitHub unter docs/ und wird für die Hilfe-Seite mitgeliefert.
 [tool.hatch.build.targets.wheel.force-include]
 "docs" = "netmover/web/help"
 

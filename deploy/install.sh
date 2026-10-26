@@ -1,7 +1,7 @@
 #!/bin/sh
 # NetMover auf Debian 13 installieren bzw. aktualisieren (als root ausführen).
 #
-#   git clone https://git.wilde-server.de/florian.wilde/netmover.git /opt/netmover/src
+#   git clone https://github.com/florianwilde/netmover.git /opt/netmover/src
 #   /opt/netmover/src/deploy/install.sh
 #
 # Spätere Updates: netmover-update (siehe deploy/update.sh).
