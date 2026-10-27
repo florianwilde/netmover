@@ -504,7 +504,7 @@ async def _status_context(request: Request) -> dict[str, Any]:
     async def usage(m: Mount) -> tuple[int, int] | None:
         if m.state is not MountState.MOUNTED or not m.type.is_kernel_mount:
             return None
-        return await run_in_threadpool(state.mounts.usage, m.id, 2.0)
+        return await run_in_threadpool(state.mounts.cached_usage, m.id)
 
     usages = await asyncio.gather(*(usage(m) for m in mounts))
     return {

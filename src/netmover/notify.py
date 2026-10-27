@@ -162,6 +162,30 @@ class Notifier:
                 cfg,
             )
 
+    def quarantined(self, rule: str, files: list[tuple[str, str]]) -> None:
+        """Dateien, die eine Regel in die Quarantäne verschoben hat: (Datei, neuer Ort).
+
+        Gemeldet in jedem Modus außer „aus“: Jede Datei landet nur einmal dort und
+        bleibt liegen, bis jemand sie sich ansieht."""
+        cfg = self.settings()
+        if cfg.notify_mode is NotifyMode.OFF or not files:
+            return
+        shown = files[:10]
+        lines = [f"• {src} → {dst}" for src, dst in shown]
+        if len(files) > len(shown):
+            lines.append(f"… und {len(files) - len(shown)} weitere")
+        count = f"{len(files)} Dateien" if len(files) > 1 else "Eine Datei"
+        self.send(
+            Notification(
+                "rule.quarantined",
+                f"NetMover: Regel „{rule}“ – {count} in Quarantäne",
+                "Nach wiederholten Fehlversuchen beiseitegelegt; bitte prüfen:\n"
+                + "\n".join(lines),
+                rule,
+            ),
+            cfg,
+        )
+
     def mount_event(self, kind: str, mount: str, message: str) -> None:
         """Passt zur ``Notifier``-Signatur des :class:`MountManager`."""
         title = (

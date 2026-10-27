@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import errno
 import os
+import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -370,6 +373,111 @@ def test_usage(
     manager.mount(mid)
     usage = manager.usage(mid)
     assert usage is not None and usage[0] >= usage[1] > 0
+
+
+class HangingStatvfs:
+    """``os.statvfs``, das für einen Pfad hängt, bis ``release()`` gerufen wird."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = str(path)
+        self.calls = 0
+        self.gate = threading.Event()
+        self.hang = True
+        self._real = os.statvfs
+
+    def __call__(self, path: object) -> os.statvfs_result:
+        if str(path) == self.path:
+            self.calls += 1
+            if self.hang:
+                self.gate.wait(10)
+        return self._real(path)  # type: ignore[arg-type]
+
+    def release(self) -> None:
+        self.hang = False
+        self.gate.set()
+
+
+def _wait_until(cond: Callable[[], bool]) -> None:
+    deadline = time.monotonic() + 5
+    while not cond():
+        assert time.monotonic() < deadline, "Bedingung nicht eingetreten"
+        time.sleep(0.01)
+
+
+def test_cached_usage_reuses_value(
+    manager: MountManager,
+    fake_backend: FakeMountBackend,
+    make_mount: MountFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_backend.export("nas", "scans")
+    mid = make_mount()
+    manager.mount(mid)
+    spy = HangingStatvfs(manager.mountpoint_for("scans"))
+    spy.hang = False
+    monkeypatch.setattr(os, "statvfs", spy)
+    first = manager.cached_usage(mid)
+    assert first is not None and first[0] >= first[1] > 0
+    assert manager.cached_usage(mid) == first
+    assert spy.calls == 1
+
+
+def test_cached_usage_hanging_mount_does_not_block(
+    manager: MountManager,
+    fake_backend: FakeMountBackend,
+    make_mount: MountFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_backend.export("nas", "scans")
+    mid = make_mount()
+    manager.mount(mid)
+    hanging = HangingStatvfs(manager.mountpoint_for("scans"))
+    monkeypatch.setattr(os, "statvfs", hanging)
+    try:
+        started = time.monotonic()
+        assert manager.cached_usage(mid, wait=0.1) is None
+        assert manager.cached_usage(mid, wait=0.1) is None
+        assert time.monotonic() - started < 2
+        assert hanging.calls == 1  # keine zweite Abfrage, solange die erste hängt
+    finally:
+        hanging.release()
+    _wait_until(lambda: manager.cached_usage(mid, wait=0) is not None)
+
+
+def test_cached_usage_shows_last_value_while_refreshing(
+    retry_manager: MountManager,
+    fake_backend: FakeMountBackend,
+    make_mount: MountFactory,
+    clock: Clock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_backend.export("nas", "scans")
+    mid = make_mount()
+    retry_manager.mount(mid)
+    old = retry_manager.cached_usage(mid)
+    assert old is not None
+    hanging = HangingStatvfs(retry_manager.mountpoint_for("scans"))
+    monkeypatch.setattr(os, "statvfs", hanging)
+    try:
+        clock.now += 61  # Wert veraltet → Erneuerung im Hintergrund
+        assert retry_manager.cached_usage(mid) == old
+        clock.now += 3  # Erneuerung hängt länger als ``wait`` → unbekannt
+        assert retry_manager.cached_usage(mid) is None
+    finally:
+        hanging.release()
+    _wait_until(lambda: retry_manager.cached_usage(mid) is not None)
+    assert hanging.calls == 1
+
+
+def test_cached_usage_forgotten_on_state_change(
+    manager: MountManager, fake_backend: FakeMountBackend, make_mount: MountFactory
+) -> None:
+    fake_backend.export("nas", "scans")
+    mid = make_mount()
+    manager.mount(mid)
+    assert manager.cached_usage(mid) is not None
+    manager.unmount(mid)
+    assert manager.cached_usage(mid) is None
 
 
 # -- Praxisbefund: NAS-Neustart dauert länger als die Wiederherstellung ----------------------

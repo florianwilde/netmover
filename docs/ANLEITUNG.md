@@ -240,7 +240,7 @@ Synology-Verwaltungsordner (`@eaDir`, `#recycle`).
 |---|---|
 | **Eigentümer setzen** | `uid:gid`, z. B. `1000:1000`. Auf SMB-Zielen wirkungslos (dort bestimmen die Mount-Optionen den Eigentümer), auf NFS nur ohne Root-Squash. |
 | **Modus setzen** | z. B. `0644`; leer = wie die Quelldatei |
-| **Quarantäneordner** | Dateien, die mehrmals hintereinander scheitern, werden dorthin verschoben (relativ zur Quell-Anbindung), statt es endlos zu versuchen. Leer = keine Quarantäne. |
+| **Quarantäneordner** | Dateien, die mehrmals hintereinander scheitern, werden dorthin verschoben (relativ zur Quell-Anbindung), statt es endlos zu versuchen. Leer = keine Quarantäne. Sind Benachrichtigungen eingeschaltet, kommt dazu eine Meldung. |
 
 ### Regel kopieren {#regel-kopieren}
 
@@ -343,7 +343,7 @@ Gotify, Home Assistant). Beides lässt sich gleichzeitig nutzen.
 
 | Feld | Bedeutung |
 |---|---|
-| **Benachrichtigen** | nie / bei jedem fehlgeschlagenen Lauf / erst nach N Fehlschlägen in Folge. Fällt eine **Anbindung** aus, kommt die Meldung immer sofort (einmal, mit den betroffenen Regeln). |
+| **Benachrichtigen** | nie / bei jedem fehlgeschlagenen Lauf / erst nach N Fehlschlägen in Folge. Fällt eine **Anbindung** aus, kommt die Meldung immer sofort (einmal, mit den betroffenen Regeln). Ebenso sofort, wenn eine Regel Dateien in die **Quarantäne** verschiebt (Ereignis `rule.quarantined`, mit Dateien und neuem Ort). |
 | **Entwarnung** | Nachricht, wenn eine Regel oder Anbindung wieder funktioniert |
 
 **E-Mail:**

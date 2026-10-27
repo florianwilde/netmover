@@ -27,7 +27,16 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from netmover.db import session_scope
 from netmover.logging_setup import event, get_logger
-from netmover.models import FileFailure, Rule, Run, RunItem, RunStatus, RunTrigger, utcnow
+from netmover.models import (
+    FileFailure,
+    ItemStatus,
+    Rule,
+    Run,
+    RunItem,
+    RunStatus,
+    RunTrigger,
+    utcnow,
+)
 from netmover.mover.engine import RunResult
 from netmover.mover.runner import RuleRunner
 from netmover.notify import Notifier
@@ -181,6 +190,11 @@ class RunService:
         )
         if notify is not None and self.notifier is not None:
             self.notifier.rule_result(*notify)
+        quarantined = [
+            (i.src, i.dst or "") for i in result.items if i.status is ItemStatus.QUARANTINED
+        ]
+        if quarantined and not result.dry_run and self.notifier is not None:
+            self.notifier.quarantined(rule_name, quarantined)
         return run_id
 
     @staticmethod

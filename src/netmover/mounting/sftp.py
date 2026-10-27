@@ -3,6 +3,12 @@
 Kein Kernel-Mount – daher kein Hängen im Kernel, aber auch kein ``ismount``.
 Der Hostschlüssel wird beim ersten Test festgehalten (Trust on first use) und ist
 danach verbindlich; eine Abweichung bricht jede Verbindung ab.
+
+Bricht der Server eine Verbindung schon beim Aufbau ab („Error reading SSH protocol
+banner“, „No existing session“ – typisch für sshd ``MaxStartups``, wenn mehrere
+Verbindungen gleichzeitig ankommen), versucht :func:`connect` es nach kurzer Pause
+erneut, statt die Regel sofort zu pausieren. Abgelehnte Anmeldung, unbekannter oder
+geänderter Hostschlüssel und ein nicht erreichbarer Host werden nicht wiederholt.
 """
 
 from __future__ import annotations
@@ -14,6 +20,7 @@ import io
 import posixpath
 import socket
 import stat
+import time
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -23,7 +30,13 @@ import paramiko
 from paramiko.sftp import CMD_EXTENDED, CMD_EXTENDED_REPLY
 
 from netmover.crypto import redact
+from netmover.logging_setup import event, get_logger
 from netmover.mounting.report import CheckReport
+
+log = get_logger(__name__)
+
+# Pausen vor dem 2. und 3. Versuch, wenn der Server den Aufbau abbricht
+RETRY_DELAYS: tuple[float, ...] = (1.0, 3.0)
 
 
 class SftpError(RuntimeError):
@@ -36,6 +49,10 @@ class HostKeyMismatch(SftpError):
 
 class HostKeyUnknown(SftpError):
     pass
+
+
+class SftpHandshakeError(SftpError):
+    """Server hat die Verbindung beim Aufbau abgebrochen – ein neuer Versuch lohnt."""
 
 
 @dataclass(frozen=True)
@@ -137,6 +154,37 @@ class SftpSession:
 def connect(
     cfg: SftpConfig, timeout: float = 20, allow_unknown_host_key: bool = False
 ) -> SftpSession:
+    for attempt, delay in enumerate((*RETRY_DELAYS, None), start=1):
+        started = time.monotonic()
+        try:
+            return _connect_once(cfg, timeout, allow_unknown_host_key)
+        except SftpHandshakeError as exc:
+            # Nur schnelle Abbrüche wiederholen (aktiv abgewiesen). Ein Server, der gar
+            # nicht antwortet, würde sonst das Zeitlimit mehrfach ausschöpfen.
+            if delay is None or time.monotonic() - started > timeout / 2:
+                raise
+            event(
+                log,
+                "sftp.retry",
+                level=30,
+                host=cfg.host,
+                attempt=attempt,
+                delay=delay,
+                error=str(exc),
+            )
+            time.sleep(delay)
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _close(transport: paramiko.Transport, sock: socket.socket) -> None:
+    # Transport.close() schließt den Socket nur, wenn der Aufbau schon lief – nach einem
+    # sehr frühen Abbruch bliebe er sonst offen.
+    transport.close()
+    with contextlib.suppress(OSError):
+        sock.close()
+
+
+def _connect_once(cfg: SftpConfig, timeout: float, allow_unknown_host_key: bool) -> SftpSession:
     try:
         sock = socket.create_connection((cfg.host, cfg.port), timeout=timeout)
     except OSError as exc:
@@ -172,16 +220,16 @@ def connect(
         client.get_channel().settimeout(timeout)  # type: ignore[union-attr]
         return SftpSession(transport, client)
     except paramiko.AuthenticationException:
-        transport.close()
+        _close(transport, sock)
         raise SftpError(
             "Anmeldung abgelehnt – Benutzername prüfen und den öffentlichen Schlüssel in "
             "~/.ssh/authorized_keys des Zielbenutzers eintragen."
         ) from None
     except (paramiko.SSHException, OSError, EOFError) as exc:
-        transport.close()
-        raise SftpError(redact(f"SSH-Fehler: {exc}", cfg.secrets)) from None
+        _close(transport, sock)
+        raise SftpHandshakeError(redact(f"SSH-Fehler: {exc}", cfg.secrets)) from None
     except SftpError:
-        transport.close()
+        _close(transport, sock)
         raise
 
 

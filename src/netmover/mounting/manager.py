@@ -196,6 +196,11 @@ class MountManager:
         self._retry_at: dict[int, float] = {}
         self._locks: dict[int, threading.RLock] = {}
         self._locks_guard = threading.Lock()
+        # Füllstand für die Statusseite: (Zeitpunkt, Wert) und laufende Abfragen
+        # (Fertig-Signal, Startzeit). Je Mount höchstens eine Abfrage gleichzeitig.
+        self._usage_cache: dict[int, tuple[float, tuple[int, int] | None]] = {}
+        self._usage_pending: dict[int, tuple[threading.Event, float]] = {}
+        self._usage_guard = threading.Lock()
 
     # -- Hilfen --------------------------------------------------------------------
 
@@ -271,6 +276,8 @@ class MountManager:
             m.last_error = error
             if mounted:
                 m.last_mounted_at = utcnow()
+        with self._usage_guard:
+            self._usage_cache.pop(mount_id, None)
 
     def _prepare_mountpoint(self, mp: Path) -> bool:
         """Legt den Mountpoint an bzw. prüft, dass er leer ist. True = neu angelegt."""
@@ -688,21 +695,76 @@ class MountManager:
         event(log, "mount.recovered", mount=m.name, attempt="retry")
         self._notify("mount.recovered", m.name, f"„{m.name}“ ist wieder eingehängt.", mount_id)
 
-    def usage(self, mount_id: int, timeout: float | None = None) -> tuple[int, int] | None:
-        """(gesamt, frei) in Bytes – nur bei eingehängten Kernel-Mounts."""
+    def _usage_target(self, mount_id: int) -> tuple[str, Path] | None:
         m, _ = self._load(mount_id)
         if not m.type.is_kernel_mount:
             return None
         mp = self.mountpoint_for(m.slug)
-        if not self.backend.is_mounted(mp):
+        return (m.name, mp) if self.backend.is_mounted(mp) else None
+
+    def usage(self, mount_id: int, timeout: float | None = None) -> tuple[int, int] | None:
+        """(gesamt, frei) in Bytes – nur bei eingehängten Kernel-Mounts."""
+        target = self._usage_target(mount_id)
+        if target is None:
             return None
+        name, mp = target
         try:
             st = run_with_timeout(
-                lambda: os.statvfs(mp), timeout or self.probe_timeout, f"statvfs:{m.name}"
+                lambda: os.statvfs(mp), timeout or self.probe_timeout, f"statvfs:{name}"
             )
         except (OSError, OperationTimeout):
             return None
         return st.f_blocks * st.f_frsize, st.f_bavail * st.f_frsize
+
+    def cached_usage(
+        self, mount_id: int, *, wait: float = 2.0, max_age: float = 60.0
+    ) -> tuple[int, int] | None:
+        """Füllstand für die Statusseite, ohne auf hängende Mounts zu warten.
+
+        Ein Wert jünger als ``max_age`` kommt sofort aus dem Zwischenspeicher. Ein
+        älterer wird im Hintergrund erneuert und bis dahin weiter gezeigt; nur ohne
+        jeden Wert wird bis ``wait`` gewartet. Hängt die Abfrage länger als ``wait``,
+        ist der Füllstand unbekannt (None). Solange sie hängt, startet keine weitere –
+        ein hängender Mount bindet höchstens einen Thread.
+        """
+        now = self._clock()
+        with self._usage_guard:
+            cached = self._usage_cache.get(mount_id)
+            if cached is not None and now - cached[0] < max_age:
+                return cached[1]
+            pending = self._usage_pending.get(mount_id)
+            if pending is None:
+                pending = (threading.Event(), now)
+                self._usage_pending[mount_id] = pending
+                threading.Thread(
+                    target=self._refresh_usage,
+                    args=(mount_id, pending[0]),
+                    name=f"nm-usage:{mount_id}",
+                    daemon=True,
+                ).start()
+        done, started = pending
+        if cached is not None and now - started < wait:
+            return cached[1]
+        if cached is None and done.wait(max(0.0, wait - (now - started))):
+            with self._usage_guard:
+                fresh = self._usage_cache.get(mount_id)
+            return fresh[1] if fresh is not None else None
+        return None
+
+    def _refresh_usage(self, mount_id: int, done: threading.Event) -> None:
+        value: tuple[int, int] | None = None
+        try:
+            target = self._usage_target(mount_id)
+            if target is not None:
+                st = os.statvfs(target[1])  # darf hängen: läuft im eigenen Thread
+                value = st.f_blocks * st.f_frsize, st.f_bavail * st.f_frsize
+        except (OSError, MountError, LookupError):
+            value = None
+        finally:
+            with self._usage_guard:
+                self._usage_cache[mount_id] = (self._clock(), value)
+                self._usage_pending.pop(mount_id, None)
+            done.set()
 
     def sftp_config_for(self, mount_id: int) -> SftpConfig:
         """Entschlüsselte Verbindungsdaten einer SFTP-Anbindung für einen Regellauf."""
