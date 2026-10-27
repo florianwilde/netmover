@@ -2,7 +2,7 @@
 # Installation: siehe README, Abschnitt „Installation“.
 [Unit]
 Description=NetMover – NFS/SMB-Mounts und zeitgesteuertes Verschieben
-Documentation=https://git.wilde-server.de/florian.wilde/netmover
+Documentation=https://github.com/florianwilde/netmover
 Wants=network-online.target
 After=network-online.target remote-fs-pre.target
 
