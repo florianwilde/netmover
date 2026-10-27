@@ -510,11 +510,14 @@ GitHub Actions).
   [CHANGELOG.md](CHANGELOG.md). Bei einem Release:
   1. CI grün? Dann den Abschnitt `[Unreleased]` mit Versionsnummer versehen.
   2. Die Version in `src/netmover/__init__.py` anheben.
-  3. Einen annotierten Tag `vX.Y.Z` setzen (Betreff = Titel des Releases) und pushen.
-  4. Release auf GitHub: macht die CI nach grünem Lauf selbst; von Hand mit
-     `scripts/github_release.py vX.Y.Z` (Token in `~/.config/netmover/github-token`,
-     Modus 0600). `--all` legt fehlende Releases für alle Tags an; dasselbe macht
-     *Actions → CI → Run workflow* mit dem Token der CI.
+  3. Nach dem Merge auf `main`: *Actions → CI → Run workflow* mit **Version**
+     (`X.Y.Z`) und **Kurztitel**. Die CI prüft, dass Version und Changelog-Abschnitt
+     stimmen und es den Tag noch nicht gibt, setzt nach grünem Lauf den annotierten
+     Tag `vX.Y.Z` („NetMover X.Y.Z – Kurztitel“) und legt das Release an.
+  4. Alternativ von Hand: Tag setzen und pushen – das Release legt dann die CI an –
+     oder `scripts/github_release.py --tag X.Y.Z "Kurztitel"` (Token in
+     `~/.config/netmover/github-token`, Modus 0600). *Run workflow* ohne Version
+     bzw. `--all` legt fehlende Releases für alle vorhandenen Tags an.
 - Arbeitszeit und Entscheidungen stehen in [DEVLOG.md](DEVLOG.md).
 - htmx 2.0.4 liegt unter `src/netmover/web/static/htmx.min.js`
   (SHA-256 `e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447`).

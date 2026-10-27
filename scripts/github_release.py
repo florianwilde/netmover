@@ -3,6 +3,11 @@
 
     scripts/github_release.py v0.11.0     # ein Tag
     scripts/github_release.py --all       # alle Tags (bestehende Releases werden aktualisiert)
+    scripts/github_release.py --tag 0.12.0 "Kurztitel"   # Tag setzen, pushen, Release
+
+``--tag`` prüft vorher: Version in ``src/netmover/__init__.py``, Abschnitt im
+Changelog, Tag noch nicht vorhanden. Der Tag kommt auf den ausgecheckten Commit; in
+GitHub Actions (*Actions → CI → Run workflow* mit Version) ist das ``main``.
 
 Token (GitHub → Settings → Developer settings → Fine-grained token, nur dieses
 Repository, Berechtigung „Contents: Read and write“) aus ``GITHUB_TOKEN`` oder
@@ -54,6 +59,35 @@ def _git(*args: str) -> str:
 def release_title(tag: str) -> str:
     """Betreff der Tag-Annotation, z. B. „NetMover 0.11.0 – mehrere Ziele je Regel“."""
     return _git("tag", "-l", "--format=%(contents:subject)", tag) or f"NetMover {tag[1:]}"
+
+
+def tag_message(version: str, title: str, init_text: str, changelog: str) -> tuple[str, str]:
+    """Prüft eine neue Version und liefert (Tag, Betreff der Annotation)."""
+    tag = f"v{version}"
+    if not TAG_RE.match(tag):
+        raise SystemExit(f"Keine Versionsnummer X.Y.Z: {version!r}")
+    m = re.search(r'^__version__ = "([^"]+)"', init_text, re.M)
+    if m is None or m.group(1) != version:
+        found = m.group(1) if m else "?"
+        raise SystemExit(f"src/netmover/__init__.py steht auf {found}, nicht auf {version}")
+    changelog_section(changelog, version)
+    title = " ".join(title.split())
+    return tag, f"NetMover {version} – {title}" if title else f"NetMover {version}"
+
+
+def create_tag(version: str, title: str) -> str:
+    tag, subject = tag_message(
+        version,
+        title,
+        (ROOT / "src/netmover/__init__.py").read_text(),
+        (ROOT / "CHANGELOG.md").read_text(),
+    )
+    if _git("tag", "-l", tag) or _git("ls-remote", "--tags", "origin", f"refs/tags/{tag}"):
+        raise SystemExit(f"Tag {tag} gibt es schon")
+    _git("tag", "-a", tag, "-m", subject)
+    _git("push", "origin", f"refs/tags/{tag}")
+    print(f"{tag}: Tag gesetzt – {subject}")
+    return tag
 
 
 def remote_repo(origin: str) -> str:
@@ -122,11 +156,15 @@ def main(argv: list[str]) -> int:
     if not argv:
         print(__doc__)
         return 2
-    tags = (
-        [t for t in _git("tag", "-l", "--sort=v:refname").splitlines() if TAG_RE.match(t)]
-        if argv == ["--all"]
-        else argv
-    )
+    if argv[0] == "--tag":
+        if len(argv) not in (2, 3):
+            raise SystemExit("Aufruf: --tag X.Y.Z [Kurztitel]")
+        token()  # vor dem Tag prüfen, dass das Release angelegt werden kann
+        tags = [create_tag(argv[1], argv[2] if len(argv) == 3 else "")]
+    elif argv == ["--all"]:
+        tags = [t for t in _git("tag", "-l", "--sort=v:refname").splitlines() if TAG_RE.match(t)]
+    else:
+        tags = argv
     changelog = (ROOT / "CHANGELOG.md").read_text()
     for tag in tags:  # zuerst alles prüfen, dann veröffentlichen
         if not TAG_RE.match(tag):
