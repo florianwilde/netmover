@@ -8,6 +8,12 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 
 ## [Unreleased]
 
+### Hinzugefügt
+- Release per Knopfdruck: *Actions → CI → Run workflow* mit Version und Kurztitel
+  setzt nach grünem Lauf den annotierten Tag auf `main` und legt das Release an
+  (`scripts/github_release.py --tag`). Vorher wird geprüft, dass die Version im Code
+  und im Changelog steht und der Tag noch nicht existiert.
+
 ## [0.12.0] – 2026-10-27
 
 ### Hinzugefügt
