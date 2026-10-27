@@ -10,15 +10,14 @@ Legende: ✅ erledigt · 🔨 in Arbeit · 📋 geplant · 💡 Idee (noch nicht
 
 | Status | Thema | Warum |
 |---|---|---|
-| 🔨 | **SSH-Ausfälle bei Paperless**: Wiederholung bei abgebrochenem Aufbau ist fertig (unveröffentlicht); offen: Anbindungen auf SSH-Schlüssel umstellen, `MaxStartups` auf den Paperless-Hosts prüfen | 18 kurze Ausfälle seit 11.10. („No existing session“, „protocol banner“) |
-| 🔨 | **Statusseite schneller bei hängenden Mounts**: Füllstand zwischenspeichern – fertig, unveröffentlicht | Heute bis zu 2 s Wartezeit, wenn ein NFS-Server weg ist |
-| 🔨 | **Benachrichtigung bei Quarantäne** einer Datei – fertig, unveröffentlicht | Unbeaufsichtigter Betrieb; bisher nur über Kuma (`metrics.quarantined_24h`) sichtbar |
+| 🔨 | **SSH-Ausfälle bei Paperless**: Wiederholung bei abgebrochenem Aufbau seit 0.12.0; offen: Anbindungen auf SSH-Schlüssel umstellen, `MaxStartups` auf den Paperless-Hosts prüfen | 18 kurze Ausfälle seit 11.10. („No existing session“, „protocol banner“) |
 | 🔨 | **Kompatibilitätszusage für 1.0**: Entwurf im README („Kompatibilität“), Exporte als Testdateien | Danach keine brechenden Änderungen ohne 2.0 |
 
 ### Weg zu 1.0
 
 0.10.0 Sicherung + CI → 0.11.0 mehrere Ziele (Kundenanforderung; Datenformat muss vor
-1.0 feststehen) → 0.12.0 restliche Punkte oben → ein bis zwei Wochen ruhiger Betrieb →
+1.0 feststehen) → 0.12.0 Statusseite, Quarantäne-Meldung, SFTP-Wiederholung → SSH auf den
+Paperless-Hosts und Kompatibilitätszusage freigeben → ein bis zwei Wochen ruhiger Betrieb →
 1.0.0 ohne neue Funktionen.
 
 **Entschieden:** Kein TLS im internen Netz – HTTP auf Port 8080 ist eine bewusste
@@ -38,6 +37,7 @@ nicht vertrauenswürdige Netze.
 
 | Version | Thema |
 |---|---|
+| 0.12.0 | Statusseite wartet nicht auf hängende Mounts (Füllstand zwischengespeichert); Benachrichtigung bei Quarantäne; SFTP-Wiederholung bei abgebrochenem Verbindungsaufbau; Umzug nach GitHub mit CI und Releases |
 | 0.11.0 | Mehrere Ziele je Regel (bis zu 10), unabhängig erreichbar; Archiv wird zum weiteren Ziel |
 | 0.10.0 | Tägliche verschlüsselte Sicherung + `netmover restore`; Kennzahlen für Kuma; CI in Gitea; Migrationstest-Pflicht |
 | 0.9.0 | Regeln kopieren (Kopie zunächst deaktiviert) |
