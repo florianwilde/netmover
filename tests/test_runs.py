@@ -255,6 +255,73 @@ def test_notify_off_by_default(
     assert sent == []
 
 
+def quarantined(*names: str) -> RunResult:
+    return RunResult(
+        RunStatus.OK,
+        seen=len(names),
+        skipped=len(names),
+        items=[
+            ItemResult(
+                n, ItemStatus.QUARANTINED, f"nas:/quarantaene/{n}", 1, "nach 3 Fehlversuchen"
+            )
+            for n in names
+        ],
+    )
+
+
+def test_notify_quarantine_in_every_mode(
+    service: RunService,
+    fake_runner: FakeRunner,
+    rule_id: int,
+    session_factory: sessionmaker[Session],
+    sent: list[tuple[str, str, str]],
+) -> None:
+    _enable_webhook(session_factory, NotifyMode.AFTER_N, after=3)
+    fake_runner.results += [quarantined("a.pdf"), ok()]
+    service.execute(rule_id)
+    service.execute(rule_id)
+    assert len(sent) == 1
+    body = json.loads(sent[0][2])
+    assert body["event"] == "rule.quarantined"
+    assert body["rule"] == "scans"
+    assert "Eine Datei in Quarantäne" in body["title"]
+    assert "a.pdf → nas:/quarantaene/a.pdf" in body["message"]
+
+
+def test_notify_quarantine_lists_at_most_ten(
+    service: RunService,
+    fake_runner: FakeRunner,
+    rule_id: int,
+    session_factory: sessionmaker[Session],
+    sent: list[tuple[str, str, str]],
+) -> None:
+    _enable_webhook(session_factory, NotifyMode.EVERY)
+    fake_runner.results.append(quarantined(*(f"{i}.pdf" for i in range(12))))
+    service.execute(rule_id)
+    body = json.loads(sent[0][2])
+    assert "12 Dateien in Quarantäne" in body["title"]
+    assert body["message"].count("•") == 10
+    assert "… und 2 weitere" in body["message"]
+
+
+def test_no_quarantine_notice_when_off_or_dry_run(
+    service: RunService,
+    fake_runner: FakeRunner,
+    rule_id: int,
+    session_factory: sessionmaker[Session],
+    sent: list[tuple[str, str, str]],
+) -> None:
+    fake_runner.results.append(quarantined("a.pdf"))
+    service.execute(rule_id)
+    assert sent == []
+    _enable_webhook(session_factory, NotifyMode.EVERY)
+    dry = quarantined("b.pdf")
+    dry.dry_run = True
+    fake_runner.results.append(dry)
+    service.execute(rule_id, dry_run=True)
+    assert sent == []
+
+
 def test_render_json_escapes_values() -> None:
     n = Notification("rule.failed", 'Titel mit "Anführung"', "Zeile 1\nZeile 2 \\ $x", "r")
     body = render('{"t": "$title", "m": "$message", "x": "$unbekannt"}', "application/json", n)

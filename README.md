@@ -378,6 +378,22 @@ einzelne Anbindung oder Regel. Alternativ meldet NetMover jede Minute an einen
 Uptime-Kuma-Push-Monitor (*Einstellungen → Überwachung*). Details:
 [Anleitung → Uptime Kuma](docs/ANLEITUNG.md#uptime-kuma).
 
+## Kompatibilität
+
+Ab Version 1.0 gilt: **Ein Update innerhalb von 1.x verlangt nie Handarbeit.**
+Brechende Änderungen gibt es erst mit 2.0, angekündigt im Changelog.
+
+| Was | Zusage | Abgesichert durch |
+|---|---|---|
+| Update | Von **jeder** 0.x- und 1.x-Version direkt auf die neueste 1.x, ohne Zwischenschritte; die Datenbank wird beim Start migriert, die Sicherung vorher macht `netmover-update`. | `tests/test_migrations.py`: jede Migration auf einer befüllten Datenbank hoch und wieder herunter |
+| Einstellungen | Variablen in `netmover.env` behalten Name und Bedeutung; neue bekommen einen Standard, der das bisherige Verhalten beibehält. | Review |
+| Export | Jeder Export ab 0.10.0 lässt sich importieren. Das Format (`"format": 1`) wird nur erweitert; ein neues Format bringt die Umwandlung des alten mit. | `tests/test_compat.py` mit echten Exporten älterer Versionen (`tests/data/`) |
+| Überwachung | `/healthz` und die Einzel-Endpunkte behalten Statuscodes und Felder; neue Felder können dazukommen. | Review |
+| Sicherung | Mit `netmover restore` lässt sich jede Sicherung ab 0.10.0 einspielen; die Datenbank wird danach migriert. | `tests/test_backup.py` (Sichern und Einspielen in derselben Version) |
+
+Zurückstufen auf eine ältere Version ist nicht Teil der Zusage – dafür gibt es die
+Sicherung von vor dem Update (siehe [Update](#update)).
+
 ## Fehlersuche
 
 ```bash

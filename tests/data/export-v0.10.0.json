@@ -1,0 +1,88 @@
+{
+  "format": 1,
+  "netmover": "0.10.0",
+  "mounts": [
+    {
+      "name": "NAS Archiv",
+      "type": "nfs4",
+      "server": "nas.lan",
+      "share": "/volume1/archiv",
+      "port": null,
+      "host_key": null,
+      "uid": null,
+      "gid": null,
+      "file_mode": null,
+      "dir_mode": null,
+      "extra_options": "",
+      "auto_mount": true,
+      "enabled": true
+    },
+    {
+      "name": "Paperless",
+      "type": "sftp",
+      "server": "paperless.lan",
+      "share": "/opt/paperless/consume",
+      "port": null,
+      "host_key": null,
+      "uid": null,
+      "gid": null,
+      "file_mode": null,
+      "dir_mode": null,
+      "extra_options": "",
+      "auto_mount": true,
+      "enabled": true
+    },
+    {
+      "name": "Synology Scans",
+      "type": "cifs",
+      "server": "nas.lan",
+      "share": "scans",
+      "port": null,
+      "host_key": null,
+      "uid": null,
+      "gid": null,
+      "file_mode": null,
+      "dir_mode": null,
+      "extra_options": "",
+      "auto_mount": true,
+      "enabled": true
+    }
+  ],
+  "rules": [
+    {
+      "name": "Scans nach Paperless",
+      "enabled": true,
+      "src_subpath": "eingang",
+      "dst_path": "",
+      "pattern": "*.pdf",
+      "pattern_type": "glob",
+      "recursive": false,
+      "interval_seconds": 30,
+      "stability_seconds": 5,
+      "min_age_seconds": 0,
+      "max_size_mb": null,
+      "op_timeout_seconds": 120,
+      "action": "move",
+      "on_collision": "rename",
+      "set_owner": null,
+      "set_mode": null,
+      "dry_run": false,
+      "quarantine_path": "_quarantaene",
+      "quarantine_after": 3,
+      "archive_kind": "mount",
+      "archive_path": "scans",
+      "archive_layout": "date",
+      "src_mount": "Synology Scans",
+      "dst_mount": "Paperless",
+      "archive_mount": "NAS Archiv"
+    }
+  ],
+  "settings": {
+    "retention_days": 30,
+    "notify_mode": "after_n",
+    "notify_after": 2,
+    "notify_recovery": true,
+    "webhook_template": "{\"event\": \"$event\", \"title\": \"$title\", \"message\": \"$message\", \"rule\": \"$rule\", \"time\": \"$time\", \"host\": \"$host\"}",
+    "webhook_content_type": "application/json"
+  }
+}

@@ -5,12 +5,14 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 
+import paramiko
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
 from netmover.crypto import SecretBox
 from netmover.db import session_scope
 from netmover.models import Credential, CredentialKind, Mount, MountState, MountType
+from netmover.mounting import sftp
 from netmover.mounting.manager import MountManager, MountUnavailable
 from netmover.mounting.sftp import (
     HostKeyMismatch,
@@ -95,6 +97,49 @@ def test_missing_base_path(server: StubSFTPServer) -> None:
         ("read", False),
         ("write", None),
     ]
+
+
+@pytest.fixture
+def flaky_handshake(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Die ersten ``n`` Verbindungen bricht der „Server“ beim Banner ab (sshd MaxStartups)."""
+    state = [0, 0]  # [abzuweisen, bisherige Versuche]
+    real = paramiko.Transport.start_client
+
+    def start_client(self: paramiko.Transport, *a: object, **kw: object) -> None:
+        state[1] += 1
+        if state[1] <= state[0]:
+            raise paramiko.SSHException("Error reading SSH protocol banner")
+        real(self, *a, **kw)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(paramiko.Transport, "start_client", start_client)
+    monkeypatch.setattr(sftp, "RETRY_DELAYS", (0.0, 0.0))
+    return state
+
+
+def test_connect_retries_aborted_handshake(
+    server: StubSFTPServer, flaky_handshake: list[int]
+) -> None:
+    flaky_handshake[0] = 2
+    with connect(_cfg(server, host_key=server.host_key_string)) as sess:
+        assert sess.fingerprint.startswith("SHA256:")
+    assert flaky_handshake[1] == 3
+
+
+def test_connect_gives_up_after_three_attempts(
+    server: StubSFTPServer, flaky_handshake: list[int]
+) -> None:
+    flaky_handshake[0] = 3
+    with pytest.raises(SftpError, match="protocol banner"):
+        connect(_cfg(server, host_key=server.host_key_string))
+    assert flaky_handshake[1] == 3
+
+
+def test_connect_does_not_retry_rejected_login(
+    server: StubSFTPServer, flaky_handshake: list[int]
+) -> None:
+    with pytest.raises(SftpError, match="authorized_keys"):
+        connect(_cfg(server, private_key=None, password="falsch", host_key=server.host_key_string))
+    assert flaky_handshake[1] == 1
 
 
 def test_unreachable() -> None:

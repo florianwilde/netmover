@@ -9,16 +9,35 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 ## [Unreleased]
 
 ### Hinzugefügt
+- **Benachrichtigung bei Quarantäne**: Verschiebt eine Regel Dateien in den
+  Quarantäneordner, kommt sofort eine Meldung (Ereignis `rule.quarantined`, bis zu
+  zehn Dateien mit neuem Ort) – in jedem Benachrichtigungsmodus außer „aus“.
+- **Kompatibilitätszusage** für 1.0 (README, „Kompatibilität“): Update aus jeder
+  0.x, `netmover.env`, Export-Format, `/healthz`, Sicherung. Echte Exporte von
+  0.10.0 und 0.11.0 liegen als Testdateien bei und müssen importierbar bleiben.
 - Releases mit dem Changelog-Abschnitt als Text: `scripts/github_release.py`
   (einzeln oder `--all`) und automatisch per CI bei jedem Versions-Tag.
 
 ### Geändert
+- **Statusseite wartet nicht mehr auf hängende Mounts**: Der Füllstand kommt aus
+  einem Zwischenspeicher (höchstens 60 s alt) und wird im Hintergrund erneuert.
+  Hängt ein NFS-Server, bleibt die Seite schnell; der Füllstand gilt dann als
+  unbekannt, und je Mount hängt höchstens eine Abfrage.
+- **SFTP: zwei neue Versuche, wenn der Server den Verbindungsaufbau abbricht**
+  („Error reading SSH protocol banner“, „No existing session“ – typisch für sshd
+  `MaxStartups`), nach 1 s und 3 s. Abgelehnte Anmeldung, falscher Hostschlüssel und
+  ein nicht erreichbarer oder nicht antwortender Server pausieren die Regel weiter
+  sofort.
 - **Umzug von Gitea nach GitHub** (`github.com/florianwilde/netmover`): CI läuft als
   GitHub Actions (`.github/workflows/ci.yml`), Releases entstehen auf GitHub;
   Installations- und Update-Skript, systemd-Unit, Hilfe-Seite und Doku zeigen auf
   GitHub. Bestehende Installationen stellen die Quelle einmalig um (README,
   „Update“); für das private Repository gibt es einen Deploy Key (README,
   „Installation“).
+
+### Behoben
+- SFTP: Scheiterte der Verbindungsaufbau sehr früh, blieb die Netzwerkverbindung
+  offen (paramiko schließt sie in diesem Fall nicht).
 
 ## [0.11.0] – 2026-10-24
 

@@ -10,10 +10,10 @@ Legende: ✅ erledigt · 🔨 in Arbeit · 📋 geplant · 💡 Idee (noch nicht
 
 | Status | Thema | Warum |
 |---|---|---|
-| 📋 | **SSH-Ausfälle bei Paperless klären**, Anbindungen auf SSH-Schlüssel umstellen | 18 kurze Ausfälle seit 11.10. („No existing session“, „protocol banner“) |
-| 📋 | **Statusseite schneller bei hängenden Mounts**: Füllstand zwischenspeichern | Heute bis zu 2 s Wartezeit, wenn ein NFS-Server weg ist |
-| 📋 | **Benachrichtigung bei Quarantäne** einer Datei | Unbeaufsichtigter Betrieb; heute über Kuma (`metrics.quarantined_24h`) sichtbar |
-| 📋 | **Kompatibilitätszusage für 1.0**: Einstellungen, Export-Format, Update aus jeder 0.x | Danach keine brechenden Änderungen ohne 2.0 |
+| 🔨 | **SSH-Ausfälle bei Paperless**: Wiederholung bei abgebrochenem Aufbau ist fertig (unveröffentlicht); offen: Anbindungen auf SSH-Schlüssel umstellen, `MaxStartups` auf den Paperless-Hosts prüfen | 18 kurze Ausfälle seit 11.10. („No existing session“, „protocol banner“) |
+| 🔨 | **Statusseite schneller bei hängenden Mounts**: Füllstand zwischenspeichern – fertig, unveröffentlicht | Heute bis zu 2 s Wartezeit, wenn ein NFS-Server weg ist |
+| 🔨 | **Benachrichtigung bei Quarantäne** einer Datei – fertig, unveröffentlicht | Unbeaufsichtigter Betrieb; bisher nur über Kuma (`metrics.quarantined_24h`) sichtbar |
+| 🔨 | **Kompatibilitätszusage für 1.0**: Entwurf im README („Kompatibilität“), Exporte als Testdateien | Danach keine brechenden Änderungen ohne 2.0 |
 
 ### Weg zu 1.0
 
