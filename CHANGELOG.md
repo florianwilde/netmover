@@ -9,6 +9,11 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 ## [Unreleased]
 
 ### Hinzugefügt
+- **Proxmox in einem Befehl** (`deploy/pve-install.sh`, auf dem Proxmox-Host):
+  legt wahlweise einen privilegierten LXC (Debian 13, `mount=cifs;nfs`) oder eine VM
+  (Debian-13-Cloud-Image mit cloud-init und Gast-Agent) an und installiert darin
+  NetMover. Deploy Key für das private Repository wird erzeugt und angezeigt,
+  GitHubs Hostschlüssel ist fest hinterlegt; alle Fragen auch als `NM_*`-Variablen.
 - Release per Knopfdruck: *Actions → CI → Run workflow* mit Version und Kurztitel
   setzt nach grünem Lauf den annotierten Tag auf `main` und legt das Release an
   (`scripts/github_release.py --tag`). Vorher wird geprüft, dass die Version im Code
