@@ -57,5 +57,5 @@ nicht vertrauenswürdige Netze.
 
 ## Wünsche einbringen
 
-Neue Punkte bitte als Issue auf GitHub anlegen oder direkt hier eintragen. Bei
+Neue Punkte bitte als Issue auf GitHub anlegen (Gitea ist nur ein Spiegel) oder direkt hier eintragen. Bei
 Umsetzung wandert ein Punkt nach „In Arbeit“ und mit dem Release nach „Erledigt“.

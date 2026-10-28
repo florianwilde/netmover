@@ -14,6 +14,12 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
   (`scripts/github_release.py --tag`). Vorher wird geprüft, dass die Version im Code
   und im Changelog steht und der Tag noch nicht existiert.
 
+### Geändert
+- **Gitea läuft als Spiegel mit**: `git.wilde-server.de/florian.wilde/netmover`
+  holt Zweige und Tags automatisch von GitHub. Server, die von dort geklont
+  wurden, bekommen Updates weiter ohne Umstellung und ohne Deploy Key. Einrichtung:
+  README, „Gitea-Spiegel“.
+
 ## [0.12.0] – 2026-10-27
 
 ### Hinzugefügt

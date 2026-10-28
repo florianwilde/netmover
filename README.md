@@ -61,7 +61,16 @@ cd /opt/netmover/src && git checkout "$(git tag -l 'v*' --sort=-v:refname | head
 ./deploy/install.sh
 ```
 
-Solange das Repository auf GitHub privat ist, braucht der Server einen
+**Quelle wählen:** Entwickelt wird auf GitHub. Der Gitea-Server
+`git.wilde-server.de` spiegelt das Repository automatisch, mit Zweigen und Tags
+(siehe [Gitea-Spiegel](#gitea-spiegel)). Für Server im eigenen Netz ist der Spiegel
+die einfachste Quelle, weil er ohne Deploy Key auskommt:
+
+```bash
+git clone https://git.wilde-server.de/florian.wilde/netmover.git /opt/netmover/src
+```
+
+Direkt von GitHub: Solange das Repository dort privat ist, braucht der Server einen
 Lesezugang. Am einfachsten geht das mit einem **Deploy Key**: ein SSH-Schlüssel, der
 nur dieses eine Repository lesen darf.
 
@@ -89,16 +98,18 @@ netmover-update v0.2.0     # bestimmte Version
 ```
 
 `netmover-update` geht so vor:
-1. Neue Versions-Tags von GitHub holen und die Änderungen laut Changelog anzeigen.
+1. Neue Versions-Tags holen (von GitHub oder dem Gitea-Spiegel, je nach Klon) und
+   die Änderungen laut Changelog anzeigen.
 2. **Datenbank, `secret.key` und Einstellungen nach `/var/backups/netmover/` sichern**
    (die letzten 10 bleiben).
 3. Die Version auschecken, installieren und den Dienst neu starten. Neue
    Datenbank-Migrationen laufen dabei automatisch.
 4. `/healthz` prüfen.
 
-**Umzug von Gitea:** Installationen, die noch aus `git.wilde-server.de` geklont
-wurden, einmalig auf GitHub umstellen (privates Repository: Deploy Key wie oben
-einrichten und die SSH-Adresse nehmen):
+**Installationen aus Gitea** (geklont aus `git.wilde-server.de`) brauchen keine
+Umstellung: Sobald der [Gitea-Spiegel](#gitea-spiegel) eingerichtet ist, kommen neue
+Versionen dort mit höchstens zehn Minuten Verzögerung an. Wer lieber direkt von
+GitHub holt, stellt einmalig um (Deploy Key wie oben):
 
 ```bash
 git -C /opt/netmover/src remote set-url origin git@github.com:florianwilde/netmover.git
@@ -501,6 +512,32 @@ eigener Test dazu.
 `.github/workflows/ci.yml` führt bei jedem Push auf `main`, jedem Versions-Tag und
 jedem Pull Request ruff, mypy, shellcheck und alle Tests aus (Python 3.12 und 3.13,
 GitHub Actions).
+
+### Gitea-Spiegel
+
+GitHub ist die Quelle, `git.wilde-server.de/florian.wilde/netmover` ein reiner
+Lese-Spiegel. Gitea holt Zweige und Tags selbst ab; gepusht wird dorthin nie.
+Einmalig einrichten:
+
+1. Auf GitHub einen Fine-grained Token anlegen: nur dieses Repository, Berechtigung
+   „Contents: Read-only“, mit Ablaufdatum (vor Ablauf in Gitea erneuern).
+2. In Gitea das bisherige Repository `florian.wilde/netmover` umbenennen, z. B. in
+   `netmover-alt`. Ein bestehendes Repository lässt sich nicht in einen Spiegel
+   umwandeln; erst nach dem Umbenennen ist der Name für den Spiegel frei, und
+   bestehende Klone auf den Servern holen dann ohne Änderung vom Spiegel.
+3. *Neue Migration → GitHub*: URL `https://github.com/florianwilde/netmover`, den
+   Token als Zugangs-Token, Haken bei **„Dieses Repository wird ein Mirror sein“**,
+   Besitzer `florian.wilde`, Name `netmover`. Bei der Sichtbarkeit dieselbe wie beim
+   bisherigen Repository wählen, damit die Server weiter ohne Anmeldung klonen können.
+4. Im neuen Repository unter *Einstellungen → Mirror-Einstellungen* das Intervall auf
+   `10m` setzen (Standard 8 h) und unter *Einstellungen → Erweitert* **Actions
+   abschalten**. Die CI läuft auf GitHub; Gitea Actions liest sonst unter Umständen
+   ebenfalls `.github/workflows` und würde die Prüfungen doppelt starten.
+5. Prüfen: Auf einem Server `netmover-update --list` – die neueste Version muss
+   erscheinen. Danach kann `netmover-alt` gelöscht werden.
+
+Issues und Pull Requests gehören auf GitHub; im Spiegel angelegte gehen nicht
+verloren, landen aber nie im Code.
 
 ### Arbeitsweise
 
