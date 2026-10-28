@@ -40,6 +40,7 @@ nicht vertrauenswürdige Netze.
 
 | Version | Thema |
 |---|---|
+| 0.13.1 | `pve-install.sh`: Menüführung wie die Helper-Scripts, `--weiter`, Schreibtest, längeres Warten auf den Gast-Agent |
 | 0.13.0 | Proxmox-Installation in einem Befehl (LXC oder VM); Release per Knopfdruck in der CI; Anleitung für den Gitea-Spiegel |
 | 0.12.0 | Statusseite wartet nicht auf hängende Mounts (Füllstand zwischengespeichert); Benachrichtigung bei Quarantäne; SFTP-Wiederholung bei abgebrochenem Verbindungsaufbau; Umzug nach GitHub mit CI und Releases |
 | 0.11.0 | Mehrere Ziele je Regel (bis zu 10), unabhängig erreichbar; Archiv wird zum weiteren Ziel |

@@ -4,7 +4,7 @@
 services:
   netmover:
     build: .
-    image: netmover:0.13.0
+    image: netmover:0.13.1
     container_name: netmover
     restart: unless-stopped
     cap_add:
