@@ -52,6 +52,43 @@ heißt deshalb immer **kopieren, prüfen, dann erst die Quelle löschen**:
 | Unprivilegierter LXC | ❌ Der Kernel erlaubt dort kein CIFS/NFS-Mount. |
 | Docker | Möglich, siehe [Alternative: Docker](#alternative-docker). |
 
+### Proxmox: ein Befehl auf dem Host
+
+Nach dem Vorbild der Proxmox-VE-Helper-Scripts legt
+[`deploy/pve-install.sh`](deploy/pve-install.sh) auf einem Proxmox-VE-Host (ab 8.0)
+alles in einem Durchgang an. Es fragt am Anfang **LXC oder VM**:
+
+- **LXC:** privilegiert, Debian-13-Vorlage, `features: mount=cifs;nfs,nesting=1`.
+- **VM:** Debian-13-Cloud-Image (Prüfsumme wird geprüft), cloud-init installiert den
+  QEMU-Gast-Agent. Dafür muss ein Speicher den Inhalt „snippets“ haben; fehlt er,
+  bietet das Skript an, ihn auf `local` einzuschalten.
+
+Danach installiert es NetMover im Gast mit `install.sh` und gibt Adresse und
+Einrichtungscode aus. Bei der SSH-Quelle (Vorgabe, privates GitHub-Repository)
+erzeugt es einen Deploy Key, zeigt ihn an und wartet, bis er auf GitHub eingetragen
+ist; der Hostschlüssel von GitHub ist fest hinterlegt.
+
+Weil das Repository privat ist, kommt das Skript nicht per `curl` ohne Anmeldung auf
+den Host. Entweder kopieren oder mit einem Fine-grained Token (nur Leserecht) holen:
+
+```bash
+# vom Arbeitsplatz mit einem Klon des Repositorys
+scp deploy/pve-install.sh root@<proxmox-host>:/root/
+ssh -t root@<proxmox-host> bash /root/pve-install.sh
+
+# oder direkt auf dem Host
+curl -fsSL -H "Authorization: Bearer <token>" -o pve-install.sh \
+  https://raw.githubusercontent.com/florianwilde/netmover/main/deploy/pve-install.sh
+bash pve-install.sh
+```
+
+Jede Frage lässt sich über eine Variable vorbelegen, `-y` übernimmt den Rest
+(Liste: `bash pve-install.sh --help`):
+
+```bash
+NM_TYPE=vm NM_IP=192.168.1.50/24 NM_GW=192.168.1.1 NM_VLAN=20 bash pve-install.sh -y
+```
+
 ### systemd-Dienst (empfohlen)
 
 ```bash
