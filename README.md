@@ -56,12 +56,12 @@ heißt deshalb immer **kopieren, prüfen, dann erst die Quelle löschen**:
 
 Nach dem Vorbild der Proxmox-VE-Helper-Scripts legt
 [`deploy/pve-install.sh`](deploy/pve-install.sh) auf einem Proxmox-VE-Host (ab 8.0)
-alles in einem Durchgang an. Es fragt am Anfang **LXC oder VM**:
+alles in einem Durchgang an. Es fragt am Anfang **VM oder LXC**:
 
+- **VM (Vorgabe, empfohlen):** Debian-13-Cloud-Image (Prüfsumme wird geprüft),
+  cloud-init installiert den QEMU-Gast-Agent. Dafür muss ein Speicher den Inhalt
+  „snippets“ haben; fehlt er, bietet das Skript an, ihn auf `local` einzuschalten.
 - **LXC:** privilegiert, Debian-13-Vorlage, `features: mount=cifs;nfs,nesting=1`.
-- **VM:** Debian-13-Cloud-Image (Prüfsumme wird geprüft), cloud-init installiert den
-  QEMU-Gast-Agent. Dafür muss ein Speicher den Inhalt „snippets“ haben; fehlt er,
-  bietet das Skript an, ihn auf `local` einzuschalten.
 
 Danach installiert es NetMover im Gast mit `install.sh` und gibt Adresse und
 Einrichtungscode aus. Auf dem Proxmox-Host als root:
@@ -74,6 +74,13 @@ Wer das Skript vorher lesen will, lädt es mit `curl -fsSLO …/pve-install.sh` 
 startet es mit `bash pve-install.sh`. Für eine SSH-Quelle (`NM_SOURCE=git@…`, z. B.
 einen privaten Fork) erzeugt das Skript einen Deploy Key, zeigt ihn an und wartet,
 bis er eingetragen ist; der Hostschlüssel von GitHub ist fest hinterlegt.
+
+**Log:** Jeder Lauf schreibt nach `/var/log/netmover-pve/` (Modus 0700, `NM_LOG_DIR`)
+eine Datei `<Zeitstempel>-install.log` mit allen Einstellungen, Schritten samt Uhrzeit
+und der Ausgabe aus dem Gast – den Deploy Key nie. Dazu holt das Skript bei Erfolg
+und nach einem Fehler die Logs aus dem Gast: `…-gast-install.log` (Ausgabe von
+`install.sh`), `…-gast-journal.log` (Dienst) und bei der VM `…-gast-cloud-init.log`.
+Bricht das Skript ab, nennt es den Pfad. Logs älter als ein Jahr werden gelöscht.
 
 Jede Frage lässt sich über eine Variable vorbelegen, `-y` übernimmt den Rest
 (Liste: `bash pve-install.sh --help`):

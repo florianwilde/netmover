@@ -44,14 +44,18 @@ esac""",
     "pct": r"""
 case "$1" in
   push) cp "$3" "$STUB_ROOT/guest.sh" ;;
+  pull) echo "install.sh-Ausgabe aus dem Container" >"$4" ;;
   exec) case "$*" in *hostname*) echo "10.0.0.5" ;;
         *) echo "NETMOVER_RESULT version=0.12.0 code=ab12-cd34" ;; esac ;;
 esac""",
     "qm": r"""
 case "$1 ${2:-}" in
-  "guest exec") cat >"$STUB_ROOT/guest.sh"
-     echo '{"exitcode": 0, "exited": 1,
-            "out-data": "NETMOVER_RESULT version=0.12.0 code=ef56-7890\n"}' ;;
+  "guest exec") case "$*" in
+       *--pass-stdin*) cat >"$STUB_ROOT/guest.sh"
+          echo '{"exitcode": 0, "exited": 1,
+                 "out-data": "NETMOVER_RESULT version=0.12.0 code=ef56-7890\n"}' ;;
+       *) echo '{"exitcode": 0, "exited": 1, "out-data": "Ausgabe aus der VM\n"}' ;;
+     esac ;;
   "guest cmd") echo '[
      {"name": "lo", "ip-addresses": [{"ip-address-type": "ipv4", "ip-address": "127.0.0.1"}]},
      {"name": "eth0", "ip-addresses": [{"ip-address-type": "ipv4", "ip-address": "10.0.0.6"}]}]' ;;
@@ -75,7 +79,11 @@ def stubs(tmp_path: Path) -> dict[str, str]:
         exe.write_text(f'#!/usr/bin/env bash\necho "{name} $*" >>"$STUB_ROOT/calls.log"\n{body}\n')
         exe.chmod(0o755)
     key = tmp_path / "deploy_key"
-    key.write_text("-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----\n")
+    key.write_text(
+        "-----BEGIN OPENSSH PRIVATE KEY-----\n"
+        "S3CR3T-NUR-IM-TEST\n"
+        "-----END OPENSSH PRIVATE KEY-----\n"
+    )
     return {
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
         "STUB_ROOT": str(tmp_path),
@@ -83,6 +91,7 @@ def stubs(tmp_path: Path) -> dict[str, str]:
         "NM_IMAGE_CACHE": str(tmp_path / "cache"),
         "NM_DEPLOY_KEY": str(key),
         "NM_SSHKEYS": str(tmp_path / "keine-schluessel"),
+        "NM_LOG_DIR": str(tmp_path / "logs"),
         "HOME": str(tmp_path),
     }
 
@@ -100,6 +109,14 @@ def _run(env: dict[str, str], **nm: str) -> subprocess.CompletedProcess[str]:
 
 def _calls(env: dict[str, str]) -> list[str]:
     return (Path(env["STUB_ROOT"]) / "calls.log").read_text().splitlines()
+
+
+def _logs(env: dict[str, str]) -> dict[str, str]:
+    """Dateiendung hinter dem Zeitstempel → Inhalt, z. B. ``install`` oder ``gast-journal``."""
+    return {
+        f.name.split("-", 2)[2].removesuffix(".log"): f.read_text()
+        for f in Path(env["NM_LOG_DIR"]).glob("*.log")
+    }
 
 
 def test_lxc_is_privileged_with_mounts_and_static_ip(stubs: dict[str, str]) -> None:
@@ -184,3 +201,37 @@ def test_invalid_input_creates_nothing(
     assert r.returncode != 0
     assert message in r.stderr
     assert not any(c.startswith(("pct create", "qm create")) for c in _calls(stubs))
+
+
+def test_vm_is_default_and_run_is_logged(stubs: dict[str, str]) -> None:
+    r = _run(stubs, NM_SOURCE="git@github.com:florianwilde/netmover.git")
+    assert r.returncode == 0, r.stderr + r.stdout
+    assert any(c.startswith("qm create 105") for c in _calls(stubs))
+    assert not any(c.startswith("pct create") for c in _calls(stubs))
+
+    logs = _logs(stubs)
+    assert set(logs) == {"install", "gast-install", "gast-journal", "gast-cloud-init"}
+    log = logs["install"]
+    assert "NM_TYPE      vm" in log
+    assert "NETMOVER_RESULT version=0.12.0" in log  # Ausgabe aus dem Gast
+    assert "Einrichtungscode: ef56-7890" in log
+    assert "S3CR3T-NUR-IM-TEST" not in log  # der Deploy Key steht nie im Log
+    assert "Ausgabe aus der VM" in logs["gast-install"]
+    assert oct(Path(stubs["NM_LOG_DIR"]).stat().st_mode & 0o777) == "0o700"
+
+
+def test_failure_keeps_log_and_names_it(stubs: dict[str, str]) -> None:
+    r = _run({**stubs, "STUB_IMAGE_SHA": "0" * 128})
+    assert r.returncode != 0
+    log = _logs(stubs)["install"]
+    assert "Prüfsumme" in log
+    assert "Abgebrochen (Code 1). Log:" in r.stderr
+    assert str(Path(stubs["NM_LOG_DIR"])) in r.stderr
+
+
+def test_lxc_collects_container_logs(stubs: dict[str, str]) -> None:
+    r = _run(stubs, NM_TYPE="lxc")
+    assert r.returncode == 0, r.stderr + r.stdout
+    logs = _logs(stubs)
+    assert "install.sh-Ausgabe aus dem Container" in logs["gast-install"]
+    assert any(c.startswith("pct exec 105 -- journalctl") for c in _calls(stubs))
