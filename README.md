@@ -81,6 +81,13 @@ startet es mit `bash pve-install.sh`. Für eine SSH-Quelle (`NM_SOURCE=git@…`,
 einen privaten Fork) erzeugt das Skript einen Deploy Key, zeigt ihn an und wartet,
 bis er eingetragen ist; der Hostschlüssel von GitHub ist fest hinterlegt.
 
+**Vor dem Anlegen** schreibt das Skript 64 MB auf den gewählten Speicher und warnt
+unter 20 MB/s (`NM_MIN_MBPS`): Auf langsamem Speicher braucht der erste Start einer VM
+mit cloud-init 20 Minuten und mehr. Auf den Gast-Agent wartet es bis zu 30 Minuten
+(`NM_AGENT_TIMEOUT`) und meldet alle 30 s den Stand. Bricht es trotzdem ab – oder
+scheitert die Installation im Gast –, macht `bash pve-install.sh --weiter <Nummer>`
+mit dem schon angelegten Gast weiter, ohne ihn neu anzulegen.
+
 **Log:** Jeder Lauf schreibt nach `/var/log/netmover-pve/` (Modus 0700, `NM_LOG_DIR`)
 eine Datei `<Zeitstempel>-install.log` mit allen Einstellungen, Schritten samt Uhrzeit
 und der Ausgabe aus dem Gast – den Deploy Key nie. Dazu holt das Skript bei Erfolg

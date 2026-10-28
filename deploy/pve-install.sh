@@ -40,8 +40,11 @@ usage() {
 NetMover auf Proxmox VE ausrollen (auf dem Proxmox-Host als root).
 
   bash pve-install.sh [-y]
+  bash pve-install.sh --weiter <Nummer>
 
-  -y, --yes   Vorgaben ohne Rückfrage übernehmen (gesetzte NM_*-Variablen gelten immer)
+  -y, --yes          Vorgaben ohne Rückfrage übernehmen (gesetzte NM_*-Variablen gelten immer)
+  --weiter <Nummer>  Nichts anlegen: NetMover in eine schon vorhandene VM bzw. einen
+                     Container installieren, z. B. nach einem Abbruch beim Warten
 
 Variablen (alle optional, sonst wird gefragt):
   NM_TYPE       vm | lxc                         (Vorgabe: vm)
@@ -60,18 +63,28 @@ Variablen (alle optional, sonst wird gefragt):
   NM_VERSION    Tag, z. B. v0.12.0, oder latest  (latest)
   NM_DEPLOY_KEY Nur SSH-Quelle: vorhandener privater Deploy Key statt eines neuen
   NM_LOG_DIR    Verzeichnis für die Logs         (/var/log/netmover-pve)
+  NM_AGENT_TIMEOUT  Nur VM: Sekunden Warten auf den Gast-Agent (1800)
+  NM_SPEED_TEST Schreibtest auf dem Speicher vor dem Anlegen, ja/nein (ja)
+  NM_MIN_MBPS   Darunter warnt der Schreibtest, MB/s (20)
   NM_SSHKEYS    Nur VM: Datei mit öffentlichen SSH-Schlüsseln für den Benutzer 'debian'
                 (Vorgabe: /root/.ssh/authorized_keys des Hosts, falls vorhanden)
 EOF
 }
 
 ASSUME_YES=0
-for arg in "$@"; do
-    case "$arg" in
+RESUME_ID=""
+while [ $# -gt 0 ]; do
+    case "$1" in
         -y | --yes) ASSUME_YES=1 ;;
+        --weiter)
+            [ $# -ge 2 ] || die "--weiter braucht die Nummer der VM bzw. des Containers."
+            RESUME_ID=$2
+            shift
+            ;;
         -h | --help) usage; exit 0 ;;
-        *) die "Unbekannte Option: $arg (Hilfe: --help)" ;;
+        *) die "Unbekannte Option: $1 (Hilfe: --help)" ;;
     esac
+    shift
 done
 
 # ask VAR "Frage" "Vorgabe" – eine gesetzte Variable gilt, sonst wird gefragt
@@ -117,8 +130,10 @@ LOG="$LOG_DIR/$STAMP-install.log"
 find "$LOG_DIR" -maxdepth 1 -type f -name '*.log' -mtime +365 -delete 2>/dev/null || true
 exec > >(tee -a "$LOG") 2> >(tee -a "$LOG" >&2)
 
+SPEED_VOL=""
 finish() {
     local rc=$?
+    [ -z "$SPEED_VOL" ] || pvesm free "$SPEED_VOL" >/dev/null 2>&1 || true
     if [ "$rc" -ne 0 ]; then
         [ "$GUEST_CREATED" != 1 ] || collect_guest_logs
         printf '\n!! Abgebrochen (Code %s). Log: %s\n' "$rc" "$LOG" >&2
@@ -223,6 +238,7 @@ ui_collect() {
             NM_VLAN="$(wt --title "Netzwerk" --inputbox "VLAN-Tag (leer = keins):" 10 64 "")" || die "Abgebrochen."
         fi
         wt_input NM_IP "Netzwerk" "IP-Adresse: dhcp oder fest mit Präfix, z. B. 192.168.1.50/24" "dhcp"
+        # shellcheck disable=SC2153  # NM_IP setzt wt_input
         if [ "$NM_IP" != dhcp ]; then
             wt_input NM_GW "Netzwerk" "Gateway:" ""
         fi
@@ -250,12 +266,42 @@ ui_confirm() {
         Version "$NM_VERSION")\n\nJetzt anlegen und installieren?" 18 74 || die "Abgebrochen."
 }
 
+# --weiter: Typ und Hostname aus dem vorhandenen Gast, alles Übrige nach Vorgabe
+resume_params() {
+    [[ $RESUME_ID =~ ^[0-9]+$ ]] || die "Ungültige Nummer: $RESUME_ID"
+    NM_ID=$RESUME_ID
+    if qm status "$NM_ID" >/dev/null 2>&1; then
+        NM_TYPE=vm
+        NM_HOSTNAME="$(qm config "$NM_ID" | awk -F': ' '$1 == "name" { print $2 }')"
+    elif pct status "$NM_ID" >/dev/null 2>&1; then
+        NM_TYPE=lxc
+        NM_HOSTNAME="$(pct config "$NM_ID" | awk -F': ' '$1 == "hostname" { print $2 }')"
+    else
+        die "Es gibt keine VM und keinen Container mit der Nummer $NM_ID."
+    fi
+    NM_HOSTNAME="${NM_HOSTNAME:-netmover}"
+    if [ "$UI" != plain ]; then
+        wt --title "Weitermachen" --yesno "NetMover in $(guest_kind) $NM_ID ($NM_HOSTNAME) installieren?\n\nDer Gast bleibt, wie er ist; es wird nur NetMover installiert." 11 70 \
+            || die "Abgebrochen."
+    fi
+    ASSUME_YES=1
+}
+
+guest_kind() {
+    [ "$NM_TYPE" = vm ] && echo VM || echo Container
+}
+
 [ "$UI" = plain ] || clear >"$UI_TTY" 2>/dev/null || true
 header
 info "NetMover auf $(hostname) ausrollen ($(pveversion | head -n 1))"
 echo "    Log: $LOG"
-[ "$UI" = plain ] || ui_collect
+if [ -n "$RESUME_ID" ]; then
+    resume_params
+elif [ "$UI" != plain ]; then
+    ui_collect
+fi
 
+if [ -z "$RESUME_ID" ]; then
 ask NM_TYPE "VM oder LXC (privilegiert)? vm/lxc" "vm"
 [[ $NM_TYPE =~ ^(lxc|vm)$ ]] || die "NM_TYPE muss lxc oder vm sein, nicht '$NM_TYPE'."
 content=images
@@ -286,6 +332,7 @@ if [ "$NM_IP" != dhcp ]; then
     ask NM_GW "Gateway" ""
     [[ $NM_GW =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || die "Bei fester Adresse ist ein Gateway nötig (NM_GW)."
 fi
+fi # Ende: nur beim Anlegen
 ask NM_LAN "Oberfläche im LAN erreichbar (Port 8080, ohne TLS)? ja/nein" "ja"
 # shellcheck disable=SC2153  # NM_LAN setzt ask()
 [[ $NM_LAN =~ ^(ja|nein)$ ]] || die "NM_LAN muss ja oder nein sein."
@@ -293,7 +340,8 @@ ask NM_SOURCE "Git-Quelle" "$DEFAULT_SOURCE"
 ask NM_VERSION "Version (Tag oder latest)" "latest"
 [[ $NM_VERSION =~ ^(latest|v[0-9]+\.[0-9]+\.[0-9]+)$ ]] || die "Ungültige Version: $NM_VERSION"
 
-[ "$UI" = plain ] || ui_confirm
+[[ ${NM_AGENT_TIMEOUT:-1800} =~ ^[1-9][0-9]*$ ]] || die "NM_AGENT_TIMEOUT muss eine Zahl (Sekunden) sein."
+[ -n "$RESUME_ID" ] || [ "$UI" = plain ] || ui_confirm
 
 info "Einstellungen"
 for v in NM_TYPE NM_ID NM_HOSTNAME NM_CORES NM_RAM NM_DISK NM_STORAGE NM_BRIDGE NM_VLAN \
@@ -421,6 +469,77 @@ vm_output() {
         | python3 -c 'import json, sys; sys.stdout.write(json.load(sys.stdin).get("out-data", ""))'
 }
 
+# Schreibt 64 MB in ein Testvolume auf dem gewählten Speicher und warnt, wenn das
+# langsam geht – dann dauert der erste Start der VM (cloud-init) entsprechend lange.
+storage_speed_check() {
+    [ "${NM_SPEED_TEST:-ja}" = ja ] || return 0
+    local type name path start end mbps=0 min="${NM_MIN_MBPS:-20}"
+    type="$(pvesm status 2>/dev/null | awk -v s="$NM_STORAGE" '$1 == s { print $2 }')"
+    name="vm-$NM_ID-nmspeed"
+    case "$type" in dir | nfs | cifs | glusterfs | btrfs | cephfs) name="$name.raw" ;; esac
+    info "Schreibtest auf $NM_STORAGE (${type:-?})"
+    SPEED_VOL="$(pvesm alloc "$NM_STORAGE" "$NM_ID" "$name" 256M 2>/dev/null | sed -n "s/.*'\(.*\)'.*/\1/p")"
+    path="$([ -z "$SPEED_VOL" ] || pvesm path "$SPEED_VOL" 2>/dev/null || true)"
+    if [ "${path:0:1}" != / ]; then
+        echo "    (Schreibtest auf diesem Speicher nicht möglich – übersprungen)"
+    else
+        head -c 64M /dev/urandom >"$WORK/speed.bin"
+        start="$(date +%s%N)"
+        if timeout 120 dd if="$WORK/speed.bin" of="$path" bs=4M oflag=direct conv=fsync,notrunc status=none 2>/dev/null \
+            || timeout 120 dd if="$WORK/speed.bin" of="$path" bs=4M conv=fsync,notrunc status=none 2>/dev/null; then
+            end="$(date +%s%N)"
+            mbps=$((64 * 1000000000 / (end - start + 1)))
+        fi
+        rm -f "$WORK/speed.bin"
+        if [ "$mbps" -ge "$min" ]; then
+            ok "$mbps MB/s"
+        else
+            printf '    %s! Nur %s MB/s auf %s.%s Der erste Start (cloud-init) kann dann 20 Minuten\n' "$RD" "$mbps" "$NM_STORAGE" "$CL"
+            echo "      und länger dauern. Besser einen schnelleren Speicher wählen (NM_STORAGE)."
+            if [ "$UI" != plain ]; then
+                wt --title "Langsamer Speicher" --yesno "Schreibtest auf $NM_STORAGE: nur $mbps MB/s (erwartet mindestens $min).\n\nDer erste Start kann dann 20 Minuten und länger dauern.\n\nTrotzdem fortfahren?" 13 70 \
+                    || die "Abgebrochen – bitte mit einem schnelleren Speicher neu starten."
+            elif [ "$ASSUME_YES" != 1 ]; then
+                ask NM_SLOW_OK "Trotzdem fortfahren? ja/nein" "nein"
+                [ "$NM_SLOW_OK" = ja ] || die "Abgebrochen – bitte mit einem schnelleren Speicher neu starten."
+            fi
+        fi
+    fi
+    if [ -n "$SPEED_VOL" ]; then
+        pvesm free "$SPEED_VOL" >/dev/null 2>&1 || echo "    Testvolume $SPEED_VOL bitte von Hand löschen."
+        SPEED_VOL=""
+    fi
+}
+
+# Bei --weiter: gestoppten Gast starten
+ensure_running() {
+    local status
+    if [ "$NM_TYPE" = vm ]; then
+        status="$(qm status "$NM_ID" | awk '{ print $2 }')"
+        [ "$status" = running ] || { qm start "$NM_ID"; ok "VM $NM_ID gestartet"; }
+    else
+        status="$(pct status "$NM_ID" | awk '{ print $2 }')"
+        [ "$status" = running ] || { pct start "$NM_ID"; ok "Container $NM_ID gestartet"; }
+    fi
+}
+
+wait_for_agent() {
+    local limit="${NM_AGENT_TIMEOUT:-1800}" waited=0
+    info "Warte auf den Gast-Agent (höchstens $((limit / 60)) min; beim ersten Start installiert ihn cloud-init)"
+    until qm guest ping "$NM_ID" >/dev/null 2>&1; do
+        if [ "$waited" -ge "$limit" ]; then
+            die "Gast-Agent meldet sich nach $((waited / 60)) min nicht. Konsole der VM $NM_ID prüfen; ist sie fertig gestartet, weiter mit: bash pve-install.sh --weiter $NM_ID"
+        fi
+        sleep 5
+        waited=$((waited + 5))
+        if [ $((waited % 30)) -eq 0 ]; then
+            printf '    … %d min %02d s, VM %s\n' $((waited / 60)) $((waited % 60)) \
+                "$(qm status "$NM_ID" 2>/dev/null | awk '{ print $2 }')"
+        fi
+    done
+    ok "Gast-Agent erreichbar (nach $((waited / 60)) min $((waited % 60)) s)"
+}
+
 net_ip() {
     if [ "$NM_IP" = dhcp ]; then
         echo "ip=dhcp"
@@ -456,13 +575,15 @@ create_lxc() {
         --ostype debian --timezone host --onboot 1 --start 1 >/dev/null
     GUEST_CREATED=1
     ok "Container läuft"
+}
 
+install_lxc() {
     info "NetMover im Container installieren"
     guest_script >"$WORK/setup.sh"
     pct push "$NM_ID" "$WORK/setup.sh" /root/netmover-setup.sh --perms 0700
     # shellcheck disable=SC2016  # $? und $rc wertet die Shell im Container aus
     pct exec "$NM_ID" -- bash -c 'bash /root/netmover-setup.sh; rc=$?; rm -f /root/netmover-setup.sh; exit $rc' \
-        | tee "$WORK/out.txt" || die "Installation im Container fehlgeschlagen – Container $NM_ID bleibt zur Fehlersuche (pct enter $NM_ID)."
+        | tee "$WORK/out.txt" || die "Installation im Container fehlgeschlagen – Container $NM_ID bleibt zur Fehlersuche (pct enter $NM_ID; danach erneut: bash pve-install.sh --weiter $NM_ID)."
     GUEST_IP="$(pct exec "$NM_ID" -- hostname -I | awk '{ print $1 }')"
 }
 
@@ -501,7 +622,7 @@ snippet_storage() {
 }
 
 create_vm() {
-    local vendor_name vendor_path tz net exec_json sshkeys
+    local vendor_name vendor_path tz net sshkeys
     info "Debian-13-Cloud-Image"
     fetch_cloud_image
     snippet_storage
@@ -538,21 +659,16 @@ EOF
     fi
     qm start "$NM_ID"
     ok "VM gestartet"
+}
 
-    info "Warte auf den Gast-Agent (cloud-init installiert ihn erst, das dauert einige Minuten)"
-    local waited=0
-    until qm guest ping "$NM_ID" >/dev/null 2>&1; do
-        [ "$waited" -lt 600 ] || die "Gast-Agent meldet sich nicht – Konsole der VM $NM_ID prüfen."
-        sleep 5
-        waited=$((waited + 5))
-    done
-    ok "Gast-Agent erreichbar"
-
+install_vm() {
+    local exec_json
+    wait_for_agent
     info "NetMover in der VM installieren"
     exec_json="$WORK/exec.json"
     guest_script | qm guest exec "$NM_ID" --pass-stdin 1 --timeout 1800 -- bash -s >"$exec_json" \
         || die "Ausführen in der VM fehlgeschlagen (qm guest exec)."
-    python3 - "$exec_json" "$WORK/out.txt" <<'PY' || die "Installation in der VM fehlgeschlagen – VM bleibt zur Fehlersuche."
+    python3 - "$exec_json" "$WORK/out.txt" <<'PY' || die "Installation in der VM fehlgeschlagen – VM bleibt zur Fehlersuche (danach erneut: bash pve-install.sh --weiter $NM_ID)."
 import json, sys
 data = json.load(open(sys.argv[1]))
 out = data.get("out-data", "") + data.get("err-data", "")
@@ -574,10 +690,19 @@ for nic in json.load(sys.stdin):
 # -- Los ------------------------------------------------------------------------------
 
 GUEST_IP=""
-if [ "$NM_TYPE" = lxc ]; then
-    create_lxc
+if [ -n "$RESUME_ID" ]; then
+    GUEST_CREATED=1
+    info "Weiter mit $(guest_kind) $NM_ID ($NM_HOSTNAME)"
+    ensure_running
 else
-    create_vm
+    storage_speed_check
+fi
+if [ "$NM_TYPE" = lxc ]; then
+    [ -n "$RESUME_ID" ] || create_lxc
+    install_lxc
+else
+    [ -n "$RESUME_ID" ] || create_vm
+    install_vm
 fi
 
 result="$(grep '^NETMOVER_RESULT' "$WORK/out.txt" | tail -n 1 || true)"

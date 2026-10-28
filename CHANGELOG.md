@@ -8,7 +8,16 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 
 ## [Unreleased]
 
+### Hinzugefügt
+- `pve-install.sh --weiter <Nummer>`: installiert NetMover in eine schon angelegte VM
+  bzw. einen Container (startet ihn bei Bedarf), z. B. nach einem Abbruch beim Warten.
+- Schreibtest vor dem Anlegen: 64 MB auf ein Testvolume des gewählten Speichers;
+  unter 20 MB/s (`NM_MIN_MBPS`) Warnung, im Menü mit Rückfrage. Das Testvolume wird
+  immer gelöscht.
+
 ### Geändert
+- Warten auf den Gast-Agent bis 30 Minuten (`NM_AGENT_TIMEOUT`, vorher 10) mit
+  Fortschritt alle 30 s; die Fehlermeldung nennt den Befehl zum Weitermachen.
 - `pve-install.sh` führt am Terminal mit Dialogen wie die Proxmox-VE-Helper-Scripts
   (`whiptail`): Standard oder Erweitert, Auswahl von Typ, Speicher und Bridge,
   Zusammenfassung vor dem Anlegen; dazu Kopfzeile und farbige Statuszeilen. Ohne
