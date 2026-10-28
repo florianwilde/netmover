@@ -103,7 +103,14 @@ def _calls(env: dict[str, str]) -> list[str]:
 
 
 def test_lxc_is_privileged_with_mounts_and_static_ip(stubs: dict[str, str]) -> None:
-    r = _run(stubs, NM_TYPE="lxc", NM_IP="192.168.1.50/24", NM_GW="192.168.1.1", NM_VLAN="20")
+    r = _run(
+        stubs,
+        NM_TYPE="lxc",
+        NM_IP="192.168.1.50/24",
+        NM_GW="192.168.1.1",
+        NM_VLAN="20",
+        NM_SOURCE="git@github.com:florianwilde/netmover.git",  # SSH-Quelle → Deploy Key
+    )
     assert r.returncode == 0, r.stderr + r.stdout
     [create] = [c for c in _calls(stubs) if c.startswith("pct create")]
     assert create.startswith("pct create 105 local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst ")
@@ -127,7 +134,6 @@ def test_vm_from_cloud_image_with_cloud_init(stubs: dict[str, str]) -> None:
     r = _run(
         stubs,
         NM_TYPE="vm",
-        NM_SOURCE="https://git.example.org/netmover.git",
         NM_VERSION="v0.12.0",
         NM_LAN="nein",
     )
@@ -145,8 +151,9 @@ def test_vm_from_cloud_image_with_cloud_init(stubs: dict[str, str]) -> None:
     assert "timezone: Europe/Berlin" in vendor.read_text()
 
     guest = (Path(stubs["STUB_ROOT"]) / "guest.sh").read_text()
-    assert "NM_SOURCE=https://git.example.org/netmover.git" in guest
-    assert "NM_KEY_B64=''" in guest  # HTTPS-Quelle braucht keinen Schlüssel
+    # Vorgabe: öffentliches Repository per HTTPS, kein Schlüssel
+    assert "NM_SOURCE=https://github.com/florianwilde/netmover.git" in guest
+    assert "NM_KEY_B64=''" in guest
     assert "NM_VERSION=v0.12.0" in guest
     assert "Einrichtungscode: ef56-7890" in r.stdout
     assert "ssh -L 8080" in r.stdout

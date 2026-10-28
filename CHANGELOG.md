@@ -11,6 +11,10 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 ## [0.13.0] – 2026-10-28
 
 ### Hinzugefügt
+- **Repository öffentlich**: Installation, Updates und Proxmox-Skript brauchen weder
+  Token noch Deploy Key. Proxmox in einem Befehl:
+  `bash -c "$(curl -fsSL https://raw.githubusercontent.com/florianwilde/netmover/main/deploy/pve-install.sh)"`.
+  Server aus Gitea stellen mit `git remote set-url origin https://github.com/florianwilde/netmover.git` um.
 - **Proxmox in einem Befehl** (`deploy/pve-install.sh`, auf dem Proxmox-Host):
   legt wahlweise einen privilegierten LXC (Debian 13, `mount=cifs;nfs`) oder eine VM
   (Debian-13-Cloud-Image mit cloud-init und Gast-Agent) an und installiert darin

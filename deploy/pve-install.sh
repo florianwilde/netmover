@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # NetMover auf Proxmox VE ausrollen – auf dem Proxmox-Host als root ausführen.
 #
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/florianwilde/netmover/main/deploy/pve-install.sh)"
 #   bash pve-install.sh                      # fragt alles ab
 #   NM_TYPE=lxc NM_IP=192.168.1.50/24 NM_GW=192.168.1.1 bash pve-install.sh -y
 #
@@ -9,12 +10,12 @@
 # NetMover mit deploy/install.sh. Jede Frage lässt sich über ihre NM_*-Variable
 # vorbelegen (Liste: --help); -y nimmt für alles Übrige die Vorgabe.
 #
-# Zugang zum Code: Bei einer SSH-Quelle (Vorgabe: das private GitHub-Repository)
-# erzeugt das Skript einen Deploy Key, zeigt ihn an und wartet, bis er auf GitHub
-# eingetragen ist. Eine HTTPS-Quelle (z. B. ein öffentlicher Spiegel) braucht keinen.
+# Zugang zum Code: Vorgabe ist das öffentliche GitHub-Repository per HTTPS, ohne
+# Schlüssel. Bei einer SSH-Quelle (z. B. einem privaten Fork) erzeugt das Skript einen
+# Deploy Key, zeigt ihn an und wartet, bis er auf GitHub eingetragen ist.
 set -euo pipefail
 
-DEFAULT_SOURCE="git@github.com:florianwilde/netmover.git"
+DEFAULT_SOURCE="https://github.com/florianwilde/netmover.git"
 # Veröffentlichter Hostschlüssel von GitHub (docs.github.com, 'GitHub's SSH key
 # fingerprints', SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU)
 GITHUB_KNOWN_HOST="github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
@@ -47,9 +48,9 @@ Variablen (alle optional, sonst wird gefragt):
   NM_IP         dhcp oder Adresse/Präfix, z. B. 192.168.1.50/24   (dhcp)
   NM_GW         Gateway (nur bei fester Adresse)
   NM_LAN        ja = Oberfläche im LAN auf Port 8080, nein = nur lokal (ja)
-  NM_SOURCE     Git-Quelle                       (git@github.com:florianwilde/netmover.git)
+  NM_SOURCE     Git-Quelle                       (https://github.com/florianwilde/netmover.git)
   NM_VERSION    Tag, z. B. v0.12.0, oder latest  (latest)
-  NM_DEPLOY_KEY Vorhandener privater Deploy Key statt eines neuen
+  NM_DEPLOY_KEY Nur SSH-Quelle: vorhandener privater Deploy Key statt eines neuen
   NM_SSHKEYS    Nur VM: Datei mit öffentlichen SSH-Schlüsseln für den Benutzer 'debian'
                 (Vorgabe: /root/.ssh/authorized_keys des Hosts, falls vorhanden)
 EOF
