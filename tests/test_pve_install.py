@@ -37,7 +37,11 @@ case "$1 ${3:-}" in
   "status vztmpl") printf 'Name Type Status\nlocal dir active\n' ;;
   "status snippets") printf 'Name Type Status\n' ;;
 esac
-case "$1" in path) echo "$STUB_ROOT/snippets/${2##*/}" ;; esac""",
+case "$1" in
+  alloc) echo "successfully created '$2:$4'" ;;
+  path) case "$2" in *nmspeed*) echo "$STUB_ROOT/speed.img" ;;
+        *) echo "$STUB_ROOT/snippets/${2##*/}" ;; esac ;;
+esac""",
     "pveam": r"""
 case "$1" in
   available) echo "system  debian-12-standard_12.7-1_amd64.tar.zst"
@@ -49,6 +53,8 @@ case "$1" in
   pull) echo "install.sh-Ausgabe aus dem Container" >"$4" ;;
   exec) case "$*" in *hostname*) echo "10.0.0.5" ;;
         *) echo "NETMOVER_RESULT version=0.12.0 code=ab12-cd34" ;; esac ;;
+  status) [ "$2" = "${STUB_EXISTING_CT:-}" ] || exit 2; echo "status: running" ;;
+  config) echo "hostname: ct-kunde" ;;
 esac""",
     "qm": r"""
 case "$1 ${2:-}" in
@@ -58,6 +64,10 @@ case "$1 ${2:-}" in
                  "out-data": "NETMOVER_RESULT version=0.12.0 code=ef56-7890\n"}' ;;
        *) echo '{"exitcode": 0, "exited": 1, "out-data": "Ausgabe aus der VM\n"}' ;;
      esac ;;
+  "guest ping") [ -z "${STUB_AGENT_DOWN:-}" ] ;;
+  status*) [ "$2" = "${STUB_EXISTING_VM:-105}" ] || exit 2
+           echo "status: ${STUB_VM_STATE:-running}" ;;
+  config*) echo "name: srv-kunde" ;;
   "guest cmd") echo '[
      {"name": "lo", "ip-addresses": [{"ip-address-type": "ipv4", "ip-address": "127.0.0.1"}]},
      {"name": "eth0", "ip-addresses": [{"ip-address-type": "ipv4", "ip-address": "10.0.0.6"}]}]' ;;
@@ -86,6 +96,7 @@ case "$kind" in
 esac""",
     "ip": 'echo "4: vmbr0: <UP> mtu 1500"; echo "5: vmbr1: <UP> mtu 1500"',
     "clear": ":",
+    "sleep": ":",  # Warten auf den Gast-Agent ohne echte Pausen
     "curl": r"""
 out=""; url=""
 while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift ;; http*) url="$1" ;; esac; shift; done
@@ -311,3 +322,66 @@ def test_menu_cancel_creates_nothing(tty: dict[str, str]) -> None:
     assert r.returncode != 0
     assert "Abgebrochen." in r.stderr
     assert not any(c.startswith(("qm create", "pct create")) for c in _calls(env))
+
+
+def test_speed_check_measures_and_frees_test_volume(stubs: dict[str, str]) -> None:
+    r = _run(stubs)
+    assert r.returncode == 0, r.stderr + r.stdout
+    calls = _calls(stubs)
+    assert "pvesm alloc local-lvm 105 vm-105-nmspeed 256M" in calls
+    assert "pvesm free local-lvm:vm-105-nmspeed" in calls
+    assert calls.index("pvesm free local-lvm:vm-105-nmspeed") < next(
+        i for i, c in enumerate(calls) if c.startswith("qm create")
+    )
+    assert "MB/s" in _logs(stubs)["install"]
+
+
+def test_slow_storage_warns_and_continues_with_y(stubs: dict[str, str]) -> None:
+    r = _run(stubs, NM_MIN_MBPS="100000000")
+    assert r.returncode == 0, r.stderr + r.stdout
+    assert "Nur " in r.stdout and "schnelleren Speicher" in r.stdout
+    assert any(c.startswith("qm create") for c in _calls(stubs))
+
+
+def test_slow_storage_cancel_in_menu_creates_nothing(tty: dict[str, str]) -> None:
+    env = {**tty, "NM_MIN_MBPS": "100000000", "STUB_WT_NO": "Langsamer Speicher"}
+    r = subprocess.run([BASH, str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60)
+    assert r.returncode != 0
+    calls = _calls(env)
+    assert not any(c.startswith("qm create") for c in calls)
+    assert "pvesm free local-lvm:vm-105-nmspeed" in calls  # Testvolume wird trotzdem gelöscht
+
+
+def test_agent_timeout_shows_progress_and_names_weiter(stubs: dict[str, str]) -> None:
+    r = _run(stubs, STUB_AGENT_DOWN="1", NM_AGENT_TIMEOUT="60")
+    assert r.returncode != 0
+    assert "… 0 min 30 s, VM running" in r.stdout
+    assert "bash pve-install.sh --weiter 105" in r.stderr
+    assert "gast-cloud-init" in _logs(stubs)  # Logs aus der VM werden trotzdem geholt
+
+
+def test_weiter_installs_into_existing_vm_and_starts_it(stubs: dict[str, str]) -> None:
+    env = {**stubs, "NM_UI": "plain", "STUB_EXISTING_VM": "124", "STUB_VM_STATE": "stopped"}
+    r = _run(env, "--weiter", "124")
+    assert r.returncode == 0, r.stderr + r.stdout
+    calls = _calls(env)
+    assert not any(c.startswith(("qm create", "pct create", "pvesm alloc")) for c in calls)
+    assert "qm start 124" in calls
+    assert any(c.startswith("qm guest exec 124 --pass-stdin 1") for c in calls)
+    assert "NetMover 0.12.0 läuft in VM 124 (srv-kunde)" in r.stdout
+
+
+def test_weiter_installs_into_existing_container(stubs: dict[str, str]) -> None:
+    env = {**stubs, "NM_UI": "plain", "STUB_EXISTING_VM": "", "STUB_EXISTING_CT": "130"}
+    r = _run(env, "--weiter", "130")
+    assert r.returncode == 0, r.stderr + r.stdout
+    calls = _calls(env)
+    assert not any(c.startswith("pct create") for c in calls)
+    assert any(c.startswith("pct push 130") for c in calls)
+    assert "Container 130 (ct-kunde)" in r.stdout
+
+
+def test_weiter_unknown_guest(stubs: dict[str, str]) -> None:
+    r = _run({**stubs, "NM_UI": "plain", "STUB_EXISTING_VM": ""}, "--weiter", "999")
+    assert r.returncode != 0
+    assert "keine VM und keinen Container mit der Nummer 999" in r.stderr
