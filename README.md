@@ -56,31 +56,31 @@ heißt deshalb immer **kopieren, prüfen, dann erst die Quelle löschen**:
 
 Nach dem Vorbild der Proxmox-VE-Helper-Scripts legt
 [`deploy/pve-install.sh`](deploy/pve-install.sh) auf einem Proxmox-VE-Host (ab 8.0)
-alles in einem Durchgang an. Es fragt am Anfang **LXC oder VM**:
+alles in einem Durchgang an. Es fragt am Anfang **VM oder LXC**:
 
+- **VM (Vorgabe, empfohlen):** Debian-13-Cloud-Image (Prüfsumme wird geprüft),
+  cloud-init installiert den QEMU-Gast-Agent. Dafür muss ein Speicher den Inhalt
+  „snippets“ haben; fehlt er, bietet das Skript an, ihn auf `local` einzuschalten.
 - **LXC:** privilegiert, Debian-13-Vorlage, `features: mount=cifs;nfs,nesting=1`.
-- **VM:** Debian-13-Cloud-Image (Prüfsumme wird geprüft), cloud-init installiert den
-  QEMU-Gast-Agent. Dafür muss ein Speicher den Inhalt „snippets“ haben; fehlt er,
-  bietet das Skript an, ihn auf `local` einzuschalten.
 
 Danach installiert es NetMover im Gast mit `install.sh` und gibt Adresse und
-Einrichtungscode aus. Bei der SSH-Quelle (Vorgabe, privates GitHub-Repository)
-erzeugt es einen Deploy Key, zeigt ihn an und wartet, bis er auf GitHub eingetragen
-ist; der Hostschlüssel von GitHub ist fest hinterlegt.
-
-Weil das Repository privat ist, kommt das Skript nicht per `curl` ohne Anmeldung auf
-den Host. Entweder kopieren oder mit einem Fine-grained Token (nur Leserecht) holen:
+Einrichtungscode aus. Auf dem Proxmox-Host als root:
 
 ```bash
-# vom Arbeitsplatz mit einem Klon des Repositorys
-scp deploy/pve-install.sh root@<proxmox-host>:/root/
-ssh -t root@<proxmox-host> bash /root/pve-install.sh
-
-# oder direkt auf dem Host
-curl -fsSL -H "Authorization: Bearer <token>" -o pve-install.sh \
-  https://raw.githubusercontent.com/florianwilde/netmover/main/deploy/pve-install.sh
-bash pve-install.sh
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/florianwilde/netmover/main/deploy/pve-install.sh)"
 ```
+
+Wer das Skript vorher lesen will, lädt es mit `curl -fsSLO …/pve-install.sh` und
+startet es mit `bash pve-install.sh`. Für eine SSH-Quelle (`NM_SOURCE=git@…`, z. B.
+einen privaten Fork) erzeugt das Skript einen Deploy Key, zeigt ihn an und wartet,
+bis er eingetragen ist; der Hostschlüssel von GitHub ist fest hinterlegt.
+
+**Log:** Jeder Lauf schreibt nach `/var/log/netmover-pve/` (Modus 0700, `NM_LOG_DIR`)
+eine Datei `<Zeitstempel>-install.log` mit allen Einstellungen, Schritten samt Uhrzeit
+und der Ausgabe aus dem Gast – den Deploy Key nie. Dazu holt das Skript bei Erfolg
+und nach einem Fehler die Logs aus dem Gast: `…-gast-install.log` (Ausgabe von
+`install.sh`), `…-gast-journal.log` (Dienst) und bei der VM `…-gast-cloud-init.log`.
+Bricht das Skript ab, nennt es den Pfad. Logs älter als ein Jahr werden gelöscht.
 
 Jede Frage lässt sich über eine Variable vorbelegen, `-y` übernimmt den Rest
 (Liste: `bash pve-install.sh --help`):
@@ -98,28 +98,8 @@ cd /opt/netmover/src && git checkout "$(git tag -l 'v*' --sort=-v:refname | head
 ./deploy/install.sh
 ```
 
-**Quelle wählen:** Entwickelt wird auf GitHub. Der Gitea-Server
-`git.wilde-server.de` spiegelt das Repository automatisch, mit Zweigen und Tags
-(siehe [Gitea-Spiegel](#gitea-spiegel)). Für Server im eigenen Netz ist der Spiegel
-die einfachste Quelle, weil er ohne Deploy Key auskommt:
-
-```bash
-git clone https://git.wilde-server.de/florian.wilde/netmover.git /opt/netmover/src
-```
-
-Direkt von GitHub: Solange das Repository dort privat ist, braucht der Server einen
-Lesezugang. Am einfachsten geht das mit einem **Deploy Key**: ein SSH-Schlüssel, der
-nur dieses eine Repository lesen darf.
-
-```bash
-ssh-keygen -t ed25519 -N "" -C "netmover@$(hostname)" -f /root/.ssh/netmover_deploy
-printf 'Host github.com\n    IdentityFile /root/.ssh/netmover_deploy\n    IdentitiesOnly yes\n' >> /root/.ssh/config
-cat /root/.ssh/netmover_deploy.pub
-```
-
-Den öffentlichen Schlüssel auf GitHub unter *Settings → Deploy keys → Add deploy key*
-eintragen („Allow write access“ **nicht** ankreuzen). Dann statt der HTTPS-Adresse
-oben `git@github.com:florianwilde/netmover.git` klonen.
+Das Repository ist öffentlich: Klonen und Updates brauchen keine Anmeldung und
+keinen Schlüssel.
 
 Das Skript installiert `python3-venv`, `cifs-utils`, `nfs-common` und `git`. Es
 richtet NetMover in `/opt/netmover/venv` ein, installiert
@@ -143,15 +123,15 @@ netmover-update v0.2.0     # bestimmte Version
    Datenbank-Migrationen laufen dabei automatisch.
 4. `/healthz` prüfen.
 
-**Installationen aus Gitea** (geklont aus `git.wilde-server.de`) brauchen keine
-Umstellung: Sobald der [Gitea-Spiegel](#gitea-spiegel) eingerichtet ist, kommen neue
-Versionen dort mit höchstens zehn Minuten Verzögerung an. Wer lieber direkt von
-GitHub holt, stellt einmalig um (Deploy Key wie oben):
+**Installationen aus Gitea** (geklont aus `git.wilde-server.de`) einmalig auf GitHub
+umstellen – ohne Schlüssel, weil das Repository öffentlich ist:
 
 ```bash
-git -C /opt/netmover/src remote set-url origin git@github.com:florianwilde/netmover.git
+git -C /opt/netmover/src remote set-url origin https://github.com/florianwilde/netmover.git
 netmover-update --list
 ```
+
+Wer Gitea weiter als Quelle nutzen will, richtet den [Gitea-Spiegel](#gitea-spiegel) ein.
 
 Die Mounts bleiben die ganze Zeit eingehängt. Geht etwas schief, nennt das Skript
 die Befehle, um die Sicherung zurückzuspielen und zur vorherigen Version zu wechseln.
@@ -554,23 +534,22 @@ GitHub Actions).
 
 GitHub ist die Quelle, `git.wilde-server.de/florian.wilde/netmover` ein reiner
 Lese-Spiegel. Gitea holt Zweige und Tags selbst ab; gepusht wird dorthin nie.
+Nötig ist er nicht mehr – Server können direkt von GitHub holen (siehe [Update](#update)).
 Einmalig einrichten:
 
-1. Auf GitHub einen Fine-grained Token anlegen: nur dieses Repository, Berechtigung
-   „Contents: Read-only“, mit Ablaufdatum (vor Ablauf in Gitea erneuern).
-2. In Gitea das bisherige Repository `florian.wilde/netmover` umbenennen, z. B. in
+1. In Gitea das bisherige Repository `florian.wilde/netmover` umbenennen, z. B. in
    `netmover-alt`. Ein bestehendes Repository lässt sich nicht in einen Spiegel
    umwandeln; erst nach dem Umbenennen ist der Name für den Spiegel frei, und
    bestehende Klone auf den Servern holen dann ohne Änderung vom Spiegel.
-3. *Neue Migration → GitHub*: URL `https://github.com/florianwilde/netmover`, den
-   Token als Zugangs-Token, Haken bei **„Dieses Repository wird ein Mirror sein“**,
+2. *Neue Migration → GitHub*: URL `https://github.com/florianwilde/netmover` (ohne
+   Token, das Repository ist öffentlich), Haken bei **„Dieses Repository wird ein Mirror sein“**,
    Besitzer `florian.wilde`, Name `netmover`. Bei der Sichtbarkeit dieselbe wie beim
    bisherigen Repository wählen, damit die Server weiter ohne Anmeldung klonen können.
-4. Im neuen Repository unter *Einstellungen → Mirror-Einstellungen* das Intervall auf
+3. Im neuen Repository unter *Einstellungen → Mirror-Einstellungen* das Intervall auf
    `10m` setzen (Standard 8 h) und unter *Einstellungen → Erweitert* **Actions
    abschalten**. Die CI läuft auf GitHub; Gitea Actions liest sonst unter Umständen
    ebenfalls `.github/workflows` und würde die Prüfungen doppelt starten.
-5. Prüfen: Auf einem Server `netmover-update --list` – die neueste Version muss
+4. Prüfen: Auf einem Server `netmover-update --list` – die neueste Version muss
    erscheinen. Danach kann `netmover-alt` gelöscht werden.
 
 Issues und Pull Requests gehören auf GitHub; im Spiegel angelegte gehen nicht

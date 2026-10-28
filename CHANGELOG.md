@@ -8,11 +8,18 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 
 ## [Unreleased]
 
+## [0.13.0] – 2026-10-28
+
 ### Hinzugefügt
+- **Repository öffentlich**: Installation, Updates und Proxmox-Skript brauchen weder
+  Token noch Deploy Key. Proxmox in einem Befehl:
+  `bash -c "$(curl -fsSL https://raw.githubusercontent.com/florianwilde/netmover/main/deploy/pve-install.sh)"`.
+  Server aus Gitea stellen mit `git remote set-url origin https://github.com/florianwilde/netmover.git` um.
 - **Proxmox in einem Befehl** (`deploy/pve-install.sh`, auf dem Proxmox-Host):
-  legt wahlweise einen privilegierten LXC (Debian 13, `mount=cifs;nfs`) oder eine VM
-  (Debian-13-Cloud-Image mit cloud-init und Gast-Agent) an und installiert darin
-  NetMover. Deploy Key für das private Repository wird erzeugt und angezeigt,
+  legt eine VM (Vorgabe; Debian-13-Cloud-Image mit cloud-init und Gast-Agent) oder
+  einen privilegierten LXC (Debian 13, `mount=cifs;nfs`) an und installiert darin
+  NetMover. Jeder Lauf schreibt ein Log nach `/var/log/netmover-pve/`, dazu die Logs
+  aus dem Gast (install.sh, Dienst, cloud-init) – bei Erfolg und nach Fehlern. Deploy Key für das private Repository wird erzeugt und angezeigt,
   GitHubs Hostschlüssel ist fest hinterlegt; alle Fragen auch als `NM_*`-Variablen.
 - Release per Knopfdruck: *Actions → CI → Run workflow* mit Version und Kurztitel
   setzt nach grünem Lauf den annotierten Tag auf `main` und legt das Release an
@@ -20,10 +27,10 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
   und im Changelog steht und der Tag noch nicht existiert.
 
 ### Geändert
-- **Gitea läuft als Spiegel mit**: `git.wilde-server.de/florian.wilde/netmover`
-  holt Zweige und Tags automatisch von GitHub. Server, die von dort geklont
-  wurden, bekommen Updates weiter ohne Umstellung und ohne Deploy Key. Einrichtung:
-  README, „Gitea-Spiegel“.
+- **Gitea als Lese-Spiegel**: Anleitung im README („Gitea-Spiegel“), wie
+  `git.wilde-server.de/florian.wilde/netmover` Zweige und Tags automatisch von GitHub
+  holt. Ist er eingerichtet, bekommen Server, die von dort geklont wurden, Updates
+  ohne Umstellung und ohne Deploy Key.
 
 ## [0.12.0] – 2026-10-27
 
@@ -381,7 +388,8 @@ Erste Version.
 - Löschen von Zugangsdaten, die noch von einem Mount benutzt werden, trennt den
   Mount nicht mehr stillschweigend ab, sondern wird von der Datenbank abgelehnt.
 
-[Unreleased]: https://github.com/florianwilde/netmover/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/florianwilde/netmover/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/florianwilde/netmover/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/florianwilde/netmover/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/florianwilde/netmover/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/florianwilde/netmover/compare/v0.9.0...v0.10.0

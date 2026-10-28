@@ -1,20 +1,22 @@
 #!/usr/bin/env bash
 # NetMover auf Proxmox VE ausrollen – auf dem Proxmox-Host als root ausführen.
 #
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/florianwilde/netmover/main/deploy/pve-install.sh)"
 #   bash pve-install.sh                      # fragt alles ab
 #   NM_TYPE=lxc NM_IP=192.168.1.50/24 NM_GW=192.168.1.1 bash pve-install.sh -y
 #
-# Legt wahlweise einen privilegierten LXC (Debian 13, mount=cifs;nfs) oder eine VM
-# (Debian-13-Cloud-Image, cloud-init, QEMU-Gast-Agent) an und installiert darin
-# NetMover mit deploy/install.sh. Jede Frage lässt sich über ihre NM_*-Variable
+# Legt eine VM (Vorgabe; Debian-13-Cloud-Image, cloud-init, QEMU-Gast-Agent) oder
+# einen privilegierten LXC (Debian 13, mount=cifs;nfs) an und installiert darin
+# NetMover mit deploy/install.sh. Jeder Lauf schreibt ein Log nach
+# /var/log/netmover-pve/ (NM_LOG_DIR), dazu bei Erfolg oder Fehler die Logs aus dem Gast. Jede Frage lässt sich über ihre NM_*-Variable
 # vorbelegen (Liste: --help); -y nimmt für alles Übrige die Vorgabe.
 #
-# Zugang zum Code: Bei einer SSH-Quelle (Vorgabe: das private GitHub-Repository)
-# erzeugt das Skript einen Deploy Key, zeigt ihn an und wartet, bis er auf GitHub
-# eingetragen ist. Eine HTTPS-Quelle (z. B. ein öffentlicher Spiegel) braucht keinen.
+# Zugang zum Code: Vorgabe ist das öffentliche GitHub-Repository per HTTPS, ohne
+# Schlüssel. Bei einer SSH-Quelle (z. B. einem privaten Fork) erzeugt das Skript einen
+# Deploy Key, zeigt ihn an und wartet, bis er auf GitHub eingetragen ist.
 set -euo pipefail
 
-DEFAULT_SOURCE="git@github.com:florianwilde/netmover.git"
+DEFAULT_SOURCE="https://github.com/florianwilde/netmover.git"
 # Veröffentlichter Hostschlüssel von GitHub (docs.github.com, 'GitHub's SSH key
 # fingerprints', SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU)
 GITHUB_KNOWN_HOST="github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
@@ -22,7 +24,7 @@ CLOUD_IMAGE_URL="https://cloud.debian.org/images/cloud/trixie/latest"
 CLOUD_IMAGE="debian-13-genericcloud-amd64.qcow2"
 IMAGE_CACHE="${NM_IMAGE_CACHE:-/var/lib/vz/template/cache}"
 
-info() { printf '\n==> %s\n' "$*"; }
+info() { printf '\n==> [%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 ok() { printf '    ✓ %s\n' "$*"; }
 die() { printf '\n!! %s\n' "$*" >&2; exit 1; }
 
@@ -35,7 +37,7 @@ NetMover auf Proxmox VE ausrollen (auf dem Proxmox-Host als root).
   -y, --yes   Vorgaben ohne Rückfrage übernehmen (gesetzte NM_*-Variablen gelten immer)
 
 Variablen (alle optional, sonst wird gefragt):
-  NM_TYPE       lxc | vm                         (Vorgabe: lxc)
+  NM_TYPE       vm | lxc                         (Vorgabe: vm)
   NM_ID         VM-/CT-Nummer                    (nächste freie)
   NM_HOSTNAME   Hostname                         (netmover)
   NM_CORES      CPU-Kerne                        (2)
@@ -47,9 +49,10 @@ Variablen (alle optional, sonst wird gefragt):
   NM_IP         dhcp oder Adresse/Präfix, z. B. 192.168.1.50/24   (dhcp)
   NM_GW         Gateway (nur bei fester Adresse)
   NM_LAN        ja = Oberfläche im LAN auf Port 8080, nein = nur lokal (ja)
-  NM_SOURCE     Git-Quelle                       (git@github.com:florianwilde/netmover.git)
+  NM_SOURCE     Git-Quelle                       (https://github.com/florianwilde/netmover.git)
   NM_VERSION    Tag, z. B. v0.12.0, oder latest  (latest)
-  NM_DEPLOY_KEY Vorhandener privater Deploy Key statt eines neuen
+  NM_DEPLOY_KEY Nur SSH-Quelle: vorhandener privater Deploy Key statt eines neuen
+  NM_LOG_DIR    Verzeichnis für die Logs         (/var/log/netmover-pve)
   NM_SSHKEYS    Nur VM: Datei mit öffentlichen SSH-Schlüsseln für den Benutzer 'debian'
                 (Vorgabe: /root/.ssh/authorized_keys des Hosts, falls vorhanden)
 EOF
@@ -96,11 +99,31 @@ for cmd in pvesh pvesm pct qm; do
 done
 
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+GUEST_CREATED=0
+
+# Alles, was auf dem Bildschirm erscheint, landet auch im Log (ohne Deploy Key:
+# der wird nie ausgegeben). Je Lauf eine Datei, dazu die Logs aus dem Gast.
+LOG_DIR="${NM_LOG_DIR:-/var/log/netmover-pve}"
+STAMP="$(date +%Y%m%d-%H%M%S)"
+install -d -m 0700 "$LOG_DIR"
+LOG="$LOG_DIR/$STAMP-install.log"
+find "$LOG_DIR" -maxdepth 1 -type f -name '*.log' -mtime +365 -delete 2>/dev/null || true
+exec > >(tee -a "$LOG") 2> >(tee -a "$LOG" >&2)
+
+finish() {
+    local rc=$?
+    if [ "$rc" -ne 0 ]; then
+        [ "$GUEST_CREATED" != 1 ] || collect_guest_logs
+        printf '\n!! Abgebrochen (Code %s). Log: %s\n' "$rc" "$LOG" >&2
+    fi
+    rm -rf "$WORK"
+}
+trap finish EXIT
 
 info "NetMover auf $(hostname) ausrollen ($(pveversion | head -n 1))"
+echo "    Log: $LOG"
 
-ask NM_TYPE "LXC (privilegiert) oder VM? lxc/vm" "lxc"
+ask NM_TYPE "VM oder LXC (privilegiert)? vm/lxc" "vm"
 [[ $NM_TYPE =~ ^(lxc|vm)$ ]] || die "NM_TYPE muss lxc oder vm sein, nicht '$NM_TYPE'."
 content=images
 [ "$NM_TYPE" = vm ] || content=rootdir
@@ -136,6 +159,12 @@ ask NM_LAN "Oberfläche im LAN erreichbar (Port 8080, ohne TLS)? ja/nein" "ja"
 ask NM_SOURCE "Git-Quelle" "$DEFAULT_SOURCE"
 ask NM_VERSION "Version (Tag oder latest)" "latest"
 [[ $NM_VERSION =~ ^(latest|v[0-9]+\.[0-9]+\.[0-9]+)$ ]] || die "Ungültige Version: $NM_VERSION"
+
+info "Einstellungen"
+for v in NM_TYPE NM_ID NM_HOSTNAME NM_CORES NM_RAM NM_DISK NM_STORAGE NM_BRIDGE NM_VLAN \
+    NM_IP NM_GW NM_LAN NM_SOURCE NM_VERSION; do
+    printf '    %-12s %s\n' "$v" "${!v:-}"
+done
 
 # -- Zugang zum Code -----------------------------------------------------------------
 
@@ -236,6 +265,27 @@ echo "NETMOVER_RESULT version=$(/opt/netmover/venv/bin/netmover version) code=${
 GUEST
 }
 
+# Logs aus dem Gast neben das Host-Log legen – bei Erfolg und nach einem Fehler
+collect_guest_logs() {
+    local base="$LOG_DIR/$STAMP"
+    if [ "$NM_TYPE" = lxc ]; then
+        pct pull "$NM_ID" /var/log/netmover-install.log "$base-gast-install.log" 2>/dev/null || true
+        pct exec "$NM_ID" -- journalctl -u netmover -n 500 --no-pager >"$base-gast-journal.log" 2>/dev/null || true
+    else
+        vm_output cat /var/log/netmover-install.log >"$base-gast-install.log" 2>/dev/null || true
+        vm_output journalctl -u netmover -n 500 --no-pager >"$base-gast-journal.log" 2>/dev/null || true
+        vm_output cloud-init status --long >"$base-gast-cloud-init.log" 2>/dev/null || true
+    fi
+    find "$LOG_DIR" -maxdepth 1 -name "$STAMP-gast-*" -empty -delete 2>/dev/null || true
+    echo "    Logs aus dem Gast: $base-gast-*.log"
+}
+
+# Befehl in der VM über den Gast-Agent, Ausgabe auf stdout
+vm_output() {
+    qm guest exec "$NM_ID" --timeout 60 -- "$@" \
+        | python3 -c 'import json, sys; sys.stdout.write(json.load(sys.stdin).get("out-data", ""))'
+}
+
 net_ip() {
     if [ "$NM_IP" = dhcp ]; then
         echo "ip=dhcp"
@@ -269,6 +319,7 @@ create_lxc() {
         --rootfs "$NM_STORAGE:$NM_DISK" --net0 "$net" \
         --unprivileged 0 --features "mount=cifs;nfs,nesting=1" \
         --ostype debian --timezone host --onboot 1 --start 1 >/dev/null
+    GUEST_CREATED=1
     ok "Container läuft"
 
     info "NetMover im Container installieren"
@@ -308,6 +359,7 @@ snippet_storage() {
         ask NM_ENABLE_SNIPPETS "'snippets' auf 'local' zusätzlich einschalten (bisher: $current)? ja/nein" "ja"
         [ "$NM_ENABLE_SNIPPETS" = ja ] || die "Ohne Snippets-Speicher keine VM – dann NM_TYPE=lxc nehmen."
         pvesm set local --content "$current,snippets"
+        ok "'snippets' auf 'local' eingeschaltet"
         store=local
     fi
     SNIPPETS="$store"
@@ -339,6 +391,7 @@ EOF
     qm create "$NM_ID" --name "$NM_HOSTNAME" --ostype l26 --machine q35 --cpu host \
         --cores "$NM_CORES" --memory "$NM_RAM" --scsihw virtio-scsi-single \
         --net0 "$net" --agent enabled=1 --serial0 socket --vga serial0 --onboot 1 >/dev/null
+    GUEST_CREATED=1
     qm set "$NM_ID" --scsi0 "$NM_STORAGE:0,import-from=$IMAGE,discard=on,ssd=1" >/dev/null
     qm resize "$NM_ID" scsi0 "${NM_DISK}G" >/dev/null
     qm set "$NM_ID" --ide2 "$NM_STORAGE:cloudinit" --boot order=scsi0 \
@@ -351,7 +404,7 @@ EOF
     qm start "$NM_ID"
     ok "VM gestartet"
 
-    info "Warte auf den Gast-Agent (cloud-init installiert ihn, 2–5 Minuten)"
+    info "Warte auf den Gast-Agent (cloud-init installiert ihn erst, das dauert einige Minuten)"
     local waited=0
     until qm guest ping "$NM_ID" >/dev/null 2>&1; do
         [ "$waited" -lt 600 ] || die "Gast-Agent meldet sich nicht – Konsole der VM $NM_ID prüfen."
@@ -407,3 +460,5 @@ if [ -n "$code" ]; then
     echo "    Einrichtungscode: $code  (beim ersten Aufruf mit einem neuen Administratorpasswort)"
 fi
 echo "    Updates im Gast:  netmover-update"
+collect_guest_logs
+echo "    Log:              $LOG"
