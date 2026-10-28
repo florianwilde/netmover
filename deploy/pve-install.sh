@@ -24,9 +24,16 @@ CLOUD_IMAGE_URL="https://cloud.debian.org/images/cloud/trixie/latest"
 CLOUD_IMAGE="debian-13-genericcloud-amd64.qcow2"
 IMAGE_CACHE="${NM_IMAGE_CACHE:-/var/lib/vz/template/cache}"
 
-info() { printf '\n==> [%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
-ok() { printf '    ✓ %s\n' "$*"; }
-die() { printf '\n!! %s\n' "$*" >&2; exit 1; }
+# Farben nur, wenn ein Terminal da ist (im Log stehen sie dann auch: less -R)
+UI_TTY="${NM_UI_TTY:-/dev/tty}"
+if { : <"$UI_TTY"; } 2>/dev/null && [ -z "${NO_COLOR:-}" ]; then
+    BL=$'\e[36m' GN=$'\e[1;92m' RD=$'\e[01;31m' BD=$'\e[1m' CL=$'\e[m'
+else
+    BL="" GN="" RD="" BD="" CL=""
+fi
+info() { printf '\n%s==>%s [%s] %s%s%s\n' "$BL" "$CL" "$(date +%H:%M:%S)" "$BD" "$*" "$CL"; }
+ok() { printf '    %s✔%s %s\n' "$GN" "$CL" "$*"; }
+die() { printf '\n%s✖ %s%s\n' "$RD" "$*" "$CL" >&2; exit 1; }
 
 usage() {
     cat <<'EOF'
@@ -120,8 +127,134 @@ finish() {
 }
 trap finish EXIT
 
+header() {
+    printf '%s' "$GN"
+    cat <<'EOF'
+    _   __     __  __  ___
+   / | / /__  / /_/  |/  /___ _   _____  _____
+  /  |/ / _ \/ __/ /|_/ / __ \ | / / _ \/ ___/
+ / /|  /  __/ /_/ /  / / /_/ / |/ /  __/ /
+/_/ |_/\___/\__/_/  /_/\____/|___/\___/_/
+EOF
+    printf '%s    SMB/NFS/SFTP-Freigaben verwalten, Dateien zeitgesteuert verschieben\n\n' "$CL"
+}
+
+# -- Menüführung wie bei den Proxmox-VE-Helper-Scripts (whiptail) ---------------------
+# Ohne Terminal, mit -y oder NM_UI=plain wird zeilenweise gefragt (ask).
+
+UI=plain
+if [ "$ASSUME_YES" = 0 ] && [ "${NM_UI:-auto}" != plain ] && command -v whiptail >/dev/null \
+    && { : <"$UI_TTY"; } 2>/dev/null; then
+    UI=whiptail
+fi
+
+# wt ARGS – whiptail-Dialog; die Oberfläche geht ans Terminal, die Antwort nach stdout
+wt() {
+    whiptail --backtitle "NetMover · Proxmox VE" "$@" 3>&1 1>"$UI_TTY" 2>&3
+}
+
+# wt_input VAR "Titel" "Frage" "Vorgabe" – nur wenn VAR noch nicht gesetzt ist
+wt_input() {
+    local var=$1 value
+    [ -z "${!var:-}" ] || return 0
+    value="$(wt --title "$2" --inputbox "$3" 10 64 "$4")" || die "Abgebrochen."
+    printf -v "$var" '%s' "$value"
+}
+
+# wt_choose VAR "Titel" "Frage" "Vorgabe" OPTION BESCHREIBUNG … – Auswahlliste
+wt_choose() {
+    local var=$1 title=$2 text=$3 default=$4 items=() value
+    shift 4
+    [ -z "${!var:-}" ] || return 0
+    while [ $# -gt 0 ]; do
+        items+=("$1" "$2" "$([ "$1" = "$default" ] && echo ON || echo OFF)")
+        shift 2
+    done
+    value="$(wt --title "$title" --radiolist "$text" 16 70 6 "${items[@]}")" || die "Abgebrochen."
+    printf -v "$var" '%s' "$value"
+}
+
+# storage_items INHALT – "Name" "Typ, frei X GB" je aktivem Speicher
+storage_items() {
+    pvesm status -content "$1" 2>/dev/null | awk 'NR > 1 && $3 == "active" {
+        printf "%s\n%s, frei %.0f GB\n", $1, $2, $6 / 1024 / 1024 }'
+}
+
+bridge_names() {
+    ip -o link show type bridge 2>/dev/null | awk -F': ' '{ print $2 }' | cut -d@ -f1
+}
+
+ui_collect() {
+    wt --title "NetMover" --yesno "Dieses Skript legt auf $(hostname) einen Gast an und installiert NetMover darin.\n\nEs schreibt ein Log nach $LOG_DIR.\n\nFortfahren?" 13 66 \
+        || die "Abgebrochen."
+    local mode
+    mode="$(wt --title "Einstellungen" --menu "Vorgaben übernehmen oder selbst festlegen?" 14 72 2 \
+        "Standard" "VM, nächste Nummer, 2 Kerne, 2 GB RAM, 16 GB, vmbr0, DHCP" \
+        "Erweitert" "Typ, Nummer, Ressourcen, Speicher, Netz selbst festlegen")" || die "Abgebrochen."
+
+    if [ "$mode" = Erweitert ]; then
+        wt_choose NM_TYPE "Typ" "Was soll angelegt werden?" vm \
+            vm "VM mit Debian 13 (empfohlen)" lxc "Privilegierter LXC mit Debian 13"
+        wt_input NM_ID "Nummer" "VM-/CT-Nummer:" "$(pvesh get /cluster/nextid)"
+        wt_input NM_HOSTNAME "Hostname" "Hostname des Gasts:" "netmover"
+        wt_input NM_CORES "CPU" "CPU-Kerne:" "2"
+        wt_input NM_RAM "Arbeitsspeicher" "Arbeitsspeicher in MiB:" "2048"
+        wt_input NM_DISK "Platte" "Plattengröße in GB:" "16"
+    fi
+    NM_TYPE="${NM_TYPE:-vm}"
+
+    # Speicher: Auswahl, sobald es mehr als einen gibt (auch bei Standard)
+    local content=images items=()
+    [ "$NM_TYPE" = vm ] || content=rootdir
+    mapfile -t items < <(storage_items "$content")
+    if [ -z "${NM_STORAGE:-}" ] && [ "${#items[@]}" -gt 2 ]; then
+        wt_choose NM_STORAGE "Speicher" "Speicher für die Platte:" "${items[0]}" "${items[@]}"
+    fi
+
+    if [ "$mode" = Erweitert ]; then
+        local bridges=() b
+        mapfile -t bridges < <(bridge_names)
+        if [ "${#bridges[@]}" -gt 1 ]; then
+            items=()
+            for b in "${bridges[@]}"; do items+=("$b" "Bridge"); done
+            wt_choose NM_BRIDGE "Netzwerk" "Bridge:" "vmbr0" "${items[@]}"
+        fi
+        if [ -z "${NM_VLAN+x}" ]; then
+            NM_VLAN="$(wt --title "Netzwerk" --inputbox "VLAN-Tag (leer = keins):" 10 64 "")" || die "Abgebrochen."
+        fi
+        wt_input NM_IP "Netzwerk" "IP-Adresse: dhcp oder fest mit Präfix, z. B. 192.168.1.50/24" "dhcp"
+        if [ "$NM_IP" != dhcp ]; then
+            wt_input NM_GW "Netzwerk" "Gateway:" ""
+        fi
+        if [ -z "${NM_LAN:-}" ]; then
+            if wt --title "Oberfläche" --yesno "Oberfläche im LAN erreichbar machen (http://<IP>:8080, ohne TLS)?\n\nNein = nur lokal, Zugriff per SSH-Tunnel." 11 66; then
+                NM_LAN=ja
+            else
+                NM_LAN=nein
+            fi
+        fi
+        wt_input NM_VERSION "Version" "NetMover-Version (Tag wie v0.13.0 oder latest):" "latest"
+    fi
+    ASSUME_YES=1 # alles Übrige: Vorgaben
+}
+
+ui_confirm() {
+    local vlan="${NM_VLAN:-keins}" ip="$NM_IP"
+    [ "$NM_IP" = dhcp ] || ip="$NM_IP, Gateway $NM_GW"
+    wt --title "Zusammenfassung" --yesno "$(printf '%-14s %s\n' \
+        Typ "$( [ "$NM_TYPE" = vm ] && echo 'VM (Debian 13)' || echo 'privilegierter LXC (Debian 13)')" \
+        Nummer "$NM_ID" Hostname "$NM_HOSTNAME" \
+        Ressourcen "$NM_CORES Kerne, $NM_RAM MiB, $NM_DISK GB auf $NM_STORAGE" \
+        Netzwerk "$NM_BRIDGE, VLAN $vlan, $ip" \
+        Oberfläche "$( [ "$NM_LAN" = ja ] && echo 'im LAN auf Port 8080' || echo 'nur lokal')" \
+        Version "$NM_VERSION")\n\nJetzt anlegen und installieren?" 18 74 || die "Abgebrochen."
+}
+
+[ "$UI" = plain ] || clear >"$UI_TTY" 2>/dev/null || true
+header
 info "NetMover auf $(hostname) ausrollen ($(pveversion | head -n 1))"
 echo "    Log: $LOG"
+[ "$UI" = plain ] || ui_collect
 
 ask NM_TYPE "VM oder LXC (privilegiert)? vm/lxc" "vm"
 [[ $NM_TYPE =~ ^(lxc|vm)$ ]] || die "NM_TYPE muss lxc oder vm sein, nicht '$NM_TYPE'."
@@ -159,6 +292,8 @@ ask NM_LAN "Oberfläche im LAN erreichbar (Port 8080, ohne TLS)? ja/nein" "ja"
 ask NM_SOURCE "Git-Quelle" "$DEFAULT_SOURCE"
 ask NM_VERSION "Version (Tag oder latest)" "latest"
 [[ $NM_VERSION =~ ^(latest|v[0-9]+\.[0-9]+\.[0-9]+)$ ]] || die "Ungültige Version: $NM_VERSION"
+
+[ "$UI" = plain ] || ui_confirm
 
 info "Einstellungen"
 for v in NM_TYPE NM_ID NM_HOSTNAME NM_CORES NM_RAM NM_DISK NM_STORAGE NM_BRIDGE NM_VLAN \

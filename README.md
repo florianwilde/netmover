@@ -70,6 +70,12 @@ Einrichtungscode aus. Auf dem Proxmox-Host als root:
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/florianwilde/netmover/main/deploy/pve-install.sh)"
 ```
 
+Am Terminal führt es wie die Helper-Scripts mit Dialogen (`whiptail`) durch:
+Bestätigung, **Standard** (alle Vorgaben) oder **Erweitert** (Typ, Nummer, Hostname,
+Ressourcen, Speicher, Bridge, VLAN, IP, Oberfläche, Version), Auswahlliste für den
+Speicher, sobald es mehrere gibt, und eine Zusammenfassung vor dem Anlegen. Mit `-y`,
+vorbelegten `NM_*`-Variablen oder `NM_UI=plain` fragt es stattdessen zeilenweise.
+
 Wer das Skript vorher lesen will, lädt es mit `curl -fsSLO …/pve-install.sh` und
 startet es mit `bash pve-install.sh`. Für eine SSH-Quelle (`NM_SOURCE=git@…`, z. B.
 einen privaten Fork) erzeugt das Skript einen Deploy Key, zeigt ihn an und wartet,

@@ -31,7 +31,9 @@ case "$*" in
 esac""",
     "pvesm": r"""
 case "$1 ${3:-}" in
-  "status rootdir"|"status images") printf 'Name Type Status\nlocal-lvm lvmthin active\n' ;;
+  "status rootdir"|"status images") printf 'Name Type Status Total Used Available\n'
+     echo "local-lvm lvmthin active 1 1 52428800"
+     [ -z "${STUB_TWO_STORAGES:-}" ] || echo "ceph rbd active 1 1 104857600" ;;
   "status vztmpl") printf 'Name Type Status\nlocal dir active\n' ;;
   "status snippets") printf 'Name Type Status\n' ;;
 esac
@@ -60,6 +62,30 @@ case "$1 ${2:-}" in
      {"name": "lo", "ip-addresses": [{"ip-address-type": "ipv4", "ip-address": "127.0.0.1"}]},
      {"name": "eth0", "ip-addresses": [{"ip-address-type": "ipv4", "ip-address": "10.0.0.6"}]}]' ;;
 esac""",
+    # Antwortet wie ein Mensch, der die Vorgaben nimmt; Abweichungen über STUB_WT_*.
+    # Wie das echte whiptail: Oberfläche nach stdout, Antwort nach stderr.
+    "whiptail": r"""
+title=""; kind=""; args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+  case "${args[i]}" in
+    --title) title="${args[i + 1]}" ;;
+    --yesno|--menu|--radiolist|--inputbox) kind="${args[i]}" ;;
+  esac
+done
+echo "[$kind $title]"
+case "$kind" in
+  --yesno) [ "$title" != "${STUB_WT_NO:-}" ] ;;
+  --menu) echo "${STUB_WT_MODE:-Standard}" >&2 ;;
+  --radiolist)
+    case "$title" in
+      Typ) echo "${STUB_WT_TYPE:-vm}" >&2 ;;
+      Netzwerk) echo "${STUB_WT_BRIDGE:-vmbr0}" >&2 ;;
+      Speicher) echo "${STUB_WT_STORAGE:-local-lvm}" >&2 ;;
+    esac ;;
+  --inputbox) echo "${args[${#args[@]} - 1]}" >&2 ;;
+esac""",
+    "ip": 'echo "4: vmbr0: <UP> mtu 1500"; echo "5: vmbr1: <UP> mtu 1500"',
+    "clear": ":",
     "curl": r"""
 out=""; url=""
 while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift ;; http*) url="$1" ;; esac; shift; done
@@ -96,9 +122,9 @@ def stubs(tmp_path: Path) -> dict[str, str]:
     }
 
 
-def _run(env: dict[str, str], **nm: str) -> subprocess.CompletedProcess[str]:
+def _run(env: dict[str, str], *args: str, **nm: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [BASH, str(SCRIPT), "-y"],
+        [BASH, str(SCRIPT), *(args or ("-y",))],
         env={**env, **nm},
         capture_output=True,
         text=True,
@@ -235,3 +261,53 @@ def test_lxc_collects_container_logs(stubs: dict[str, str]) -> None:
     logs = _logs(stubs)
     assert "install.sh-Ausgabe aus dem Container" in logs["gast-install"]
     assert any(c.startswith("pct exec 105 -- journalctl") for c in _calls(stubs))
+
+
+@pytest.fixture
+def tty(stubs: dict[str, str]) -> dict[str, str]:
+    """Wie am Terminal: Dialoge statt Zeilenabfrage (Bildschirm = Datei)."""
+    screen = Path(stubs["STUB_ROOT"]) / "screen"
+    screen.touch()
+    return {**stubs, "NM_UI_TTY": str(screen), "NO_COLOR": "1"}
+
+
+def _dialogs(env: dict[str, str]) -> list[str]:
+    return [c for c in _calls(env) if c.startswith("whiptail")]
+
+
+def test_menu_standard_creates_vm_after_summary(tty: dict[str, str]) -> None:
+    r = subprocess.run([BASH, str(SCRIPT)], env=tty, capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr + r.stdout
+    titles = [c.split("--title ", 1)[1].split(" --", 1)[0] for c in _dialogs(tty)]
+    assert titles == ["NetMover", "Einstellungen", "Zusammenfassung"]
+    assert any(c.startswith("qm create 105 --name netmover") for c in _calls(tty))
+    screen = (Path(tty["STUB_ROOT"]) / "screen").read_text()
+    assert "[--yesno Zusammenfassung]" in screen  # Dialoge gehen ans Terminal, nicht ins Log
+    assert "[--yesno" not in _logs(tty)["install"]
+
+
+def test_menu_advanced_lxc_with_second_bridge_and_storage(tty: dict[str, str]) -> None:
+    env = {
+        **tty,
+        "STUB_WT_MODE": "Erweitert",
+        "STUB_WT_TYPE": "lxc",
+        "STUB_WT_BRIDGE": "vmbr1",
+        "STUB_WT_STORAGE": "ceph",
+        "STUB_TWO_STORAGES": "1",
+    }
+    r = subprocess.run([BASH, str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr + r.stdout
+    [create] = [c for c in _calls(env) if c.startswith("pct create")]
+    assert "--net0 name=eth0,bridge=vmbr1,ip=dhcp" in create
+    assert "--rootfs ceph:16" in create
+    dialogs = " ".join(_dialogs(env))
+    for title in ("Typ", "Nummer", "Hostname", "Speicher", "Netzwerk", "Oberfläche", "Version"):
+        assert f"--title {title}" in dialogs
+
+
+def test_menu_cancel_creates_nothing(tty: dict[str, str]) -> None:
+    env = {**tty, "STUB_WT_NO": "Zusammenfassung"}
+    r = subprocess.run([BASH, str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60)
+    assert r.returncode != 0
+    assert "Abgebrochen." in r.stderr
+    assert not any(c.startswith(("qm create", "pct create")) for c in _calls(env))

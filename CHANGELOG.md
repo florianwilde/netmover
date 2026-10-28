@@ -8,6 +8,12 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 
 ## [Unreleased]
 
+### Geändert
+- `pve-install.sh` führt am Terminal mit Dialogen wie die Proxmox-VE-Helper-Scripts
+  (`whiptail`): Standard oder Erweitert, Auswahl von Typ, Speicher und Bridge,
+  Zusammenfassung vor dem Anlegen; dazu Kopfzeile und farbige Statuszeilen. Ohne
+  Terminal, mit `-y` oder `NM_UI=plain` wie bisher zeilenweise.
+
 ## [0.13.0] – 2026-10-28
 
 ### Hinzugefügt
