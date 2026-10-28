@@ -8,6 +8,8 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 
 ## [Unreleased]
 
+## [0.13.0] – 2026-10-28
+
 ### Hinzugefügt
 - **Proxmox in einem Befehl** (`deploy/pve-install.sh`, auf dem Proxmox-Host):
   legt wahlweise einen privilegierten LXC (Debian 13, `mount=cifs;nfs`) oder eine VM
@@ -20,10 +22,10 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
   und im Changelog steht und der Tag noch nicht existiert.
 
 ### Geändert
-- **Gitea läuft als Spiegel mit**: `git.wilde-server.de/florian.wilde/netmover`
-  holt Zweige und Tags automatisch von GitHub. Server, die von dort geklont
-  wurden, bekommen Updates weiter ohne Umstellung und ohne Deploy Key. Einrichtung:
-  README, „Gitea-Spiegel“.
+- **Gitea als Lese-Spiegel**: Anleitung im README („Gitea-Spiegel“), wie
+  `git.wilde-server.de/florian.wilde/netmover` Zweige und Tags automatisch von GitHub
+  holt. Ist er eingerichtet, bekommen Server, die von dort geklont wurden, Updates
+  ohne Umstellung und ohne Deploy Key.
 
 ## [0.12.0] – 2026-10-27
 
@@ -381,7 +383,8 @@ Erste Version.
 - Löschen von Zugangsdaten, die noch von einem Mount benutzt werden, trennt den
   Mount nicht mehr stillschweigend ab, sondern wird von der Datenbank abgelehnt.
 
-[Unreleased]: https://github.com/florianwilde/netmover/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/florianwilde/netmover/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/florianwilde/netmover/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/florianwilde/netmover/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/florianwilde/netmover/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/florianwilde/netmover/compare/v0.9.0...v0.10.0

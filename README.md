@@ -69,15 +69,23 @@ erzeugt es einen Deploy Key, zeigt ihn an und wartet, bis er auf GitHub eingetra
 ist; der Hostschlüssel von GitHub ist fest hinterlegt.
 
 Weil das Repository privat ist, kommt das Skript nicht per `curl` ohne Anmeldung auf
-den Host. Entweder kopieren oder mit einem Fine-grained Token (nur Leserecht) holen:
+den Host. Entweder vom Arbeitsplatz kopieren:
 
 ```bash
-# vom Arbeitsplatz mit einem Klon des Repositorys
 scp deploy/pve-install.sh root@<proxmox-host>:/root/
 ssh -t root@<proxmox-host> bash /root/pve-install.sh
+```
 
-# oder direkt auf dem Host
-curl -fsSL -H "Authorization: Bearer <token>" -o pve-install.sh \
+Oder direkt auf dem Host mit einem **GitHub-Zugriffstoken** holen. Anlegen auf
+github.com: *Settings → Developer settings → Personal access tokens → Fine-grained
+tokens → Generate new token*; kurze Laufzeit (z. B. 7 Tage), *Only select
+repositories* → `florianwilde/netmover`, *Repository permissions → Contents:
+Read-only*. Der Token wird nur einmal angezeigt; nach dem Einsatz löschen. Er dient
+nur zum Holen des Skripts – der Gast nutzt danach seinen eigenen Deploy Key.
+
+```bash
+read -rs -p "GitHub-Token: " GH_TOKEN; echo     # verdeckt, nicht in der Shell-Historie
+curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -o pve-install.sh \
   https://raw.githubusercontent.com/florianwilde/netmover/main/deploy/pve-install.sh
 bash pve-install.sh
 ```
