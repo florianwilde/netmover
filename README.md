@@ -102,6 +102,20 @@ Jede Frage lässt sich über eine Variable vorbelegen, `-y` übernimmt den Rest
 NM_TYPE=vm NM_IP=192.168.1.50/24 NM_GW=192.168.1.1 NM_VLAN=20 bash pve-install.sh -y
 ```
 
+**Anmeldung am Gast:** In der VM heißt der Benutzer `debian`, ohne Passwort, nur per
+SSH-Schlüssel; root ist für die Anmeldung gesperrt, `sudo` macht zu root. Das Skript
+übernimmt die Schlüssel aus `/root/.ssh/authorized_keys` des Proxmox-Hosts (im
+Cluster die aller Knoten, `NM_SSHKEYS` für eine andere Datei).
+
+| Von wo | So geht es |
+|---|---|
+| Proxmox-Host | `ssh debian@<IP der VM>`, dann `sudo -i` |
+| Eigener Rechner | Erst den eigenen Schlüssel eintragen, vom Proxmox-Host aus: `ssh debian@<IP der VM>`, dann `echo 'ssh-ed25519 AAAA… du@laptop' >> ~/.ssh/authorized_keys` |
+| Proxmox-Konsole (seriell) | Nur mit Passwort: vorher in der VM `sudo passwd debian` |
+| LXC statt VM | Auf dem Proxmox-Host `pct enter <Nummer>`, direkt als root |
+
+Die IP zeigt das Skript am Ende, Proxmox unter *Summary* (über den Gast-Agent).
+
 ### systemd-Dienst (empfohlen)
 
 ```bash
