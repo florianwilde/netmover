@@ -8,16 +8,12 @@ Legende: ✅ erledigt · 🔨 in Arbeit · 📋 geplant · 💡 Idee (noch nicht
 
 ## Geplant
 
+**1.0 ist erreicht** (4.11.2026). Ab jetzt keine brechenden Änderungen ohne 2.0 (README,
+„Kompatibilität“); neue Funktionen kommen als 1.x.
+
 | Status | Thema | Warum |
 |---|---|---|
-| 🔨 | **SSH-Ausfälle bei Paperless**: Wiederholung bei abgebrochenem Aufbau seit 0.12.0; offen: Anbindungen auf SSH-Schlüssel umstellen, `MaxStartups` auf den Paperless-Hosts prüfen | 18 kurze Ausfälle seit 11.10. („No existing session“, „protocol banner“) |
-
-### Weg zu 1.0
-
-0.10.0 Sicherung + CI → 0.11.0 mehrere Ziele (Kundenanforderung; Datenformat muss vor
-1.0 feststehen) → 0.12.0 Statusseite, Quarantäne-Meldung, SFTP-Wiederholung → SSH auf den
-Paperless-Hosts → ein bis zwei Wochen ruhiger Betrieb →
-1.0.0 ohne neue Funktionen.
+| 📋 | **SSH bei Paperless beobachten**: Wiederholung bei abgebrochenem Aufbau gibt es seit 0.12.0; falls noch Pausen auftreten, Anbindungen auf SSH-Schlüssel umstellen und `MaxStartups` auf den Paperless-Hosts prüfen | Vor 0.12.0: 18 kurze Ausfälle seit 11.10. („No existing session“, „protocol banner“) |
 
 **Entschieden:** Kompatibilitätszusage für 1.0 wie im README („Kompatibilität“) –
 ab 1.0 keine brechenden Änderungen ohne 2.0; Exporte älterer Versionen liegen als
@@ -40,6 +36,7 @@ nicht vertrauenswürdige Netze.
 
 | Version | Thema |
 |---|---|
+| 1.0.0 | Erste stabile Version: Kompatibilitätszusage gilt; im Betrieb mit Paperless-ngx und ecoDMS |
 | 0.13.1 | `pve-install.sh`: Menüführung wie die Helper-Scripts, `--weiter`, Schreibtest, längeres Warten auf den Gast-Agent |
 | 0.13.0 | Proxmox-Installation in einem Befehl (LXC oder VM); Release per Knopfdruck in der CI; Anleitung für den Gitea-Spiegel |
 | 0.12.0 | Statusseite wartet nicht auf hängende Mounts (Füllstand zwischengespeichert); Benachrichtigung bei Quarantäne; SFTP-Wiederholung bei abgebrochenem Verbindungsaufbau; Umzug nach GitHub mit CI und Releases |

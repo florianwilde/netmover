@@ -31,7 +31,11 @@ def _load(path: Path) -> dict[str, Any]:
 
 
 def test_there_are_frozen_exports() -> None:
-    assert [p.name for p in EXPORTS] == ["export-v0.10.0.json", "export-v0.11.0.json"]
+    assert [p.name for p in EXPORTS] == [
+        "export-v0.10.0.json",
+        "export-v0.11.0.json",
+        "export-v1.0.0.json",
+    ]
     assert {_load(p)["format"] for p in EXPORTS} == {FORMAT_VERSION}
 
 
