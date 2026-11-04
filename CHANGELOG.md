@@ -8,6 +8,17 @@ Die Version steht an genau einer Stelle: `src/netmover/__init__.py`.
 
 ## [Unreleased]
 
+## [1.0.0] – 2026-11-04
+
+Erste stabile Version, ohne neue Funktionen gegenüber 0.13.1. Sie läuft seit Ende
+Oktober beim Kunden (ecoDMS) und mit Paperless-ngx ohne Beanstandung.
+
+### Geändert
+- Ab jetzt gilt die **Kompatibilitätszusage** (README, „Kompatibilität“): Updates
+  innerhalb von 1.x verlangen nie Handarbeit; brechende Änderungen erst mit 2.0.
+- Ein Export von 1.0.0 liegt als weitere Testdatei bei (`tests/data/`) und muss in
+  jeder 1.x-Version importierbar bleiben.
+
 ## [0.13.1] – 2026-10-29
 
 ### Hinzugefügt
@@ -405,7 +416,8 @@ Erste Version.
 - Löschen von Zugangsdaten, die noch von einem Mount benutzt werden, trennt den
   Mount nicht mehr stillschweigend ab, sondern wird von der Datenbank abgelehnt.
 
-[Unreleased]: https://github.com/florianwilde/netmover/compare/v0.13.1...HEAD
+[Unreleased]: https://github.com/florianwilde/netmover/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/florianwilde/netmover/compare/v0.13.1...v1.0.0
 [0.13.1]: https://github.com/florianwilde/netmover/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/florianwilde/netmover/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/florianwilde/netmover/compare/v0.11.0...v0.12.0
